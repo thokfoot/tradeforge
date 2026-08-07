@@ -11,8 +11,8 @@ One subscription replaces 4 tools (Streak + Tickertape + Chartink + trading jour
 Markets covered: **India (NSE/BSE — stocks, Nifty 50, Bank Nifty, all indices), US stocks, Crypto.**
 Free data sources at launch, provider-swappable architecture. Later: options/F&O + India intraday.
 
-- Status: **Phase 0 (planning) + Phase 0.5 (data PoC) DONE. Phase 1 build starts next — repo scaffold, contracts, then India adapter.**
-- Language/stack planned: Python (FastAPI) backend, React (Next.js + PWA) frontend, Tauri (Windows later), Postgres + Redis + Parquet, Docker.
+- Status: **Phase 1 M1–M10 DONE (full backend + frontend MVP, 86 tests green, live API + PWA verified). Next: Phase 1 wrap (auth, deploy) → Phase 2.**
+- Language/stack: Python (FastAPI) backend, React (Next.js + PWA) frontend, Tauri (Windows later), Postgres + Redis + Parquet, Docker. Module folders use underscores (`modules/market_data`, `modules/backtest_engine`).
 - Business model: Freemium. Pro target ₹199/mo (₹99–199). 10 customers × ₹199 covers server; 25 covers everything.
 - Server: cloud VPS (start Oracle free tier / ₹500-mo Hetzner). NOT the owner's home PC.
 
@@ -45,15 +45,13 @@ Rule of thumb for every change: edit inside the module folder only + run tests +
 - [x] Legal notes (see `docs/LEGAL.md`)
 - [x] Repo + docs + module skeleton committed
 - [x] **Data PoC (Phase 0.5): all 3 markets verified** — India=nse-archives ✅, US=yfinance ✅ (Stooq dead), Crypto=Binance ✅. Scripts in `data-poc/`. Providers locked.
+- [x] **Phase 1 M1–M10 (full product MVP)** — scaffold, contracts (approved), 3 data adapters, backtest engine, data/backtest API, paper trading, strategy storage + sandbox, AI assistant MVP, Next.js PWA frontend. 86 tests green.
 
 ## What is NEXT (see docs/NEXT-STEPS.md for detail)
 
-Phase 1 build, milestone order:
-1. **M1** Repo scaffold — FastAPI + Postgres + Redis + Parquet + Docker (`requirements.txt`, `app/`, `.env`, compose)
-2. **M2** Contracts — implement `modules/shared/contracts/` as Python Protocols (get owner approval on names first)
-3. **M3** India data adapter — nse-archives → canonical OHLCV → Parquet; symbol master; backfill + on-demand
-4. **M4** US (yfinance) + Crypto (Binance) adapters
-5. **M5** Backtest engine core (event-driven + Indian cost model + reproducible hash)
+Phase 1 wrap + Phase 2:
+1. **Phase 1 wrap** — auth/billing (M10b), `docker compose` deploy to VPS, seed data backfill, README run-guide
+2. **Phase 2** — intraday (US/Crypto 1m) + live-ish paper replay, screener, data export to git, trading journal, Tauri desktop
 
 ## Key decisions (short version — full reasons in docs/DECISIONS.md)
 
@@ -68,8 +66,16 @@ Phase 1 build, milestone order:
 
 ## Commands / tooling
 
-- No build tooling yet (planning phase). Python 3.9+ and git assumed available on this machine.
-- Data PoC is pure Python — check `pip` availability before starting.
+- Tests: `python -m pytest modules app` (from repo root). Run after ANY module change.
+- Backend: `uvicorn app.main:app --reload` → `/health` (dev). Full stack: `docker compose up --build`.
+- Frontend: `cd frontend && npm run dev` (uses `NEXT_PUBLIC_API_URL`, default `http://localhost:8000`). Production: `npm run build && npm run start`.
+- Data backfill: `python scripts/backfill_india.py --symbols RELIANCE TCS --years 2 --indices`.
+- Live smoke (data → backtest): `python scripts/smoke_backtest.py`.
+- API surface: `/health`, `GET /api/symbols?market=`, `GET /api/ohlcv/{symbol}`, `POST /api/backtest`, `/api/paper/*` (order/account/positions/history/reset), `/api/strategies/*` (save/validate/versions), `/api/assistant/*` (chat/confirm).
+- Env: `GEMINI_API_KEY` enables the real AI chat; `DATA_DIR` roots Parquet + accounts + strategies.
+- Note: NSE bhavcopy = 1 request/trading day (slow for long ranges — run backfill once, store is Parquet).
+- Note: port 8123 on this machine is used by a local `socksproxy` service — don't bind the API there.
+- Python 3.11.8 + git on this machine; Node 22 + npm 10 for the frontend.
 
 ## Owner / stakeholder facts
 

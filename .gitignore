@@ -11,8 +11,7 @@ dist/
 build/
 
 # Data (market data files — large, keep out of git)
-data/*.parquet
-data/raw/
+data/
 
 # Env & secrets
 .env

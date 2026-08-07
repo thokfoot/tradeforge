@@ -9,3 +9,6 @@ pandas==2.*
 numpy==2.*
 pyarrow==18.*
 httpx==0.28.*
+nse-archives==1.2.*
+yfinance==0.2.*
+google-generativeai==0.7.*
