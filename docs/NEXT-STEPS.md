@@ -4,34 +4,32 @@
 
 ## Current state (short)
 
-Phase 0 (Planning) ✅, Phase 0.5 (Data PoC) ✅, and **Phase 1 M1–M10 ✅ (full MVP: backend + API + PWA frontend)**.
-- **M1** FastAPI scaffold, **M2** contracts (8 Protocols + 18 models, owner-approved),
-  **M3** India adapter (nse-archives), **M4** US (yfinance) + Crypto (Binance) adapters,
-  **M5** backtest engine core, **M6** data + backtest API (`/api/symbols`, `/api/ohlcv`, `/api/backtest`),
-  **M7** paper trading (`/api/paper/*`), **M8** strategy storage + sandbox (`/api/strategies/*`),
-  **M10** AI assistant MVP (`/api/assistant/*`), **M9** Next.js PWA frontend (charts + backtest runner).
-- 86 tests green. Live verified end-to-end (API :8000 + frontend :3000, CORS OK).
-- Commits `0955737` (M7/M8/M10 + API) + `9250aee` (M9 frontend).
+**Phase 1 COMPLETE.** All milestones + wrap shipped, 124 tests green, live verified.
+- **M1–M6** scaffold, contracts, 3 data adapters, backtest engine, data+backtest API.
+- **M7** paper trading (`/api/paper/*`), **M8** strategy storage+sandbox, **M10** AI assistant, **M9** Next.js PWA frontend.
+- **Wrap** auth+billing (free/pro, pro gates on strategy save + AI chat), screener (`/api/screener/scan`), journal (`/api/journal/*`), data export (CSV + `scripts/export_to_git.py`), deploy config (compose + nginx + standalone frontend Dockerfile).
+- Commits `1fef617` (wrap backend), `8eb45f7` (frontend tabs), `1258aae` (deploy config).
 
-**Next: Phase 1 wrap (auth/billing, VPS deploy), then Phase 2.**
+**Next: Phase 2.**
 
-## Next task: Phase 1 wrap (run in this order)
+## Next task: Phase 2 (run in this order)
 
-### Phase 1 wrap — make it runnable/deployable
-- [ ] Auth + billing (auth_billing module): signup/login, free vs pro plan, plan gates on API
-- [ ] VPS deploy: `docker compose up --build` on server, domain + HTTPS, `NEXT_PUBLIC_API_URL` to prod URL
-- [ ] Data backfill once (NSE ~1 req/day — slow; US/crypto fast), document Parquet store size
-- [ ] README run-guide: local backend + frontend + live demo flow
-- [ ] `.env.example` for `GEMINI_API_KEY`, `DATA_DIR`, `NEXT_PUBLIC_API_URL`
+### Phase 2 — Speed (see ROADMAP.md)
+- [ ] **Intraday + replay** — Binance 1m pagination + yfinance 1m (last ~1 week only) → minute-level backtest + paper replay
+- [ ] **Screener 2.0** — watchlists, more indicators (RSI/BB/volume), fundamental filters, saved scans
+- [ ] **Journal AI review** — Gemini reads journal entries → patterns + feedback (paper-only)
+- [ ] **Alerts** — price/indicator push + in-app (Redis-backed)
+- [ ] **No-code strategy builder** — visual blocks → generated `signals` code (reuse sandbox)
+- [ ] **Education** — in-app lessons, Hinglish/Hindi toggle
+- [ ] **Tauri desktop** wrapper + Windows notifications
 
-### Phase 2 — power features (see ROADMAP.md)
-- [ ] Intraday: US/Crypto 1m bars + minute-level paper replay (Binance pagination + yfinance 1m limits known)
-- [ ] Screener (multi-symbol scans on the Parquet store)
-- [ ] "Export my data to my git" feature (git reimagined decision)
-- [ ] Trading journal + AI review
-- [ ] Tauri desktop wrapper + notifications
+### Phase 1 leftovers (do before/while Phase 2)
+- [ ] Real VPS deploy: `docker compose up --build` (Docker not installed on dev machine — config written, verify on server), domain + HTTPS, prod `NEXT_PUBLIC_API_URL`
+- [ ] Data backfill once (NSE ~1 req/day — slow; US/crypto fast), check store size
+- [ ] Seed a demo Pro account for the first customer
+- [ ] Postgres adoption for users/strategies (currently JSON-file stores — fine for MVP, switch when multi-user)
 
-> Full Phase 1/2 scope — see docs/PLAN.md and docs/ROADMAP.md.
+> Full Phase 2/3 scope — see docs/PLAN.md and docs/ROADMAP.md.
 
 ## Rules to remember every session
 

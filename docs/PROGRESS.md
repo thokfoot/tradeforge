@@ -11,6 +11,18 @@ Format:
 
 ---
 
+## 2026-08-07 — Phase 1 wrap (auth, screener, journal, export, deploy) — "complete it till end"
+- **Auth + billing** (`modules/auth_billing/`): `UserStore` (JSON, PBKDF2-hashed passwords, server-side session tokens with 30-day expiry), `AuthService` (register/login/create_subscription/user_for_token — satisfies `AuthService` contract). `/api/auth/*` (register/login/subscribe/me). Pro plan gates (`deps.require_plan("pro")`) on strategy save + AI chat. 13 tests.
+- **Screener** (`modules/screener/`): `ScreenerService` (price/volume/1d-5d-1m-3m change, above/below SMA 50/200, sortable). `/api/screener/scan`. 7 tests.
+- **Trading journal** (`modules/trading_journal/`): `JournalService` (add/list/delete entries, satisfies `Analytics` contract incl. metrics + equity_curve). `/api/journal/*`. 7 tests.
+- **Data export**: `/api/export/csv` (StreamingResponse from Parquet store) + `scripts/export_to_git.py` (CSV tree → local git repo, verified end-to-end: 1 parquet → committed repo). 2 API tests.
+- **Frontend**: tabbed PWA — Charts+Backtest (Dashboard), Screener, Paper Trading, Journal + auth/login panel + AI assistant panel (chat/confirm) + CSV export link; pro-gated buttons. `NEXT_PUBLIC_API_URL` support.
+- **Deploy**: `frontend/Dockerfile` (standalone), `nginx/nginx.conf` (reverse proxy /api→api, /→frontend), full `docker-compose.yml` (api + frontend + nginx + postgres + redis + data volume), `.env.example` expanded, README run-guide. Docker NOT installed on dev machine → compose config written but must be verified on VPS.
+- **Test suite: 124 passing** (`python -m pytest modules app`). Live verified: register→subscribe(pro)→screener(45 scanned, 38 matches)→paper fill→journal→CSV export; frontend :3000 ↔ API :8000.
+- Commits: `1fef617` (backend+modules), `8eb45f7` (frontend), `1258aae` (deploy).
+
+**Next:** Phase 2 — intraday (US/Crypto 1m) + paper replay, screener 2.0, journal AI review, alerts, no-code builder, Tauri, real VPS deploy. See NEXT-STEPS.md.
+
 ## 2026-08-07 — Phase 1 M7–M10 (paper trading, strategies, AI assistant, frontend) — "complete it"
 - **M7 paper trading** (`modules/paper_trading/`): `AccountStore` + `Ledger` (JSON persistence per user), `PaperTraderService` (MARKET/LIMIT fills, rejections for insufficient funds/position, positions/history/reset/account — equity = balance + cost_basis + unrealized; `parity_score` = win rate). 12 tests. Live API verified: AAPL BUY 5 filled @ 312.62, equity stayed 100000.
 - **M8 strategy storage + sandbox** (`modules/strategy_engine/`): `sandbox.py` `run_code` (restricted `__builtins__` whitelist, thread timeout 2s), `store.py` (JSON version history), `service.py` `StrategyService` (validate on probe data / save / list_versions). 10 tests. Contract satisfied via Protocol check.

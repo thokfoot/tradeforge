@@ -11,7 +11,7 @@ One subscription replaces 4 tools (Streak + Tickertape + Chartink + trading jour
 Markets covered: **India (NSE/BSE — stocks, Nifty 50, Bank Nifty, all indices), US stocks, Crypto.**
 Free data sources at launch, provider-swappable architecture. Later: options/F&O + India intraday.
 
-- Status: **Phase 1 M1–M10 DONE (full backend + frontend MVP, 86 tests green, live API + PWA verified). Next: Phase 1 wrap (auth, deploy) → Phase 2.**
+- Status: **Phase 1 COMPLETE (M1–M10 + wrap: auth/billing, screener, journal, data export, deploy config). 124 tests green, live verified. Next: Phase 2.**
 - Language/stack: Python (FastAPI) backend, React (Next.js + PWA) frontend, Tauri (Windows later), Postgres + Redis + Parquet, Docker. Module folders use underscores (`modules/market_data`, `modules/backtest_engine`).
 - Business model: Freemium. Pro target ₹199/mo (₹99–199). 10 customers × ₹199 covers server; 25 covers everything.
 - Server: cloud VPS (start Oracle free tier / ₹500-mo Hetzner). NOT the owner's home PC.
@@ -46,12 +46,18 @@ Rule of thumb for every change: edit inside the module folder only + run tests +
 - [x] Repo + docs + module skeleton committed
 - [x] **Data PoC (Phase 0.5): all 3 markets verified** — India=nse-archives ✅, US=yfinance ✅ (Stooq dead), Crypto=Binance ✅. Scripts in `data-poc/`. Providers locked.
 - [x] **Phase 1 M1–M10 (full product MVP)** — scaffold, contracts (approved), 3 data adapters, backtest engine, data/backtest API, paper trading, strategy storage + sandbox, AI assistant MVP, Next.js PWA frontend. 86 tests green.
+- [x] **Phase 1 wrap** — auth + billing (register/login/subscribe, PBKDF2, session tokens, pro plan gates), screener (technical filters over store), trading journal (Analytics contract), data export (CSV + `scripts/export_to_git.py`), deploy config (compose + nginx + standalone frontend Dockerfile). 124 tests green.
 
 ## What is NEXT (see docs/NEXT-STEPS.md for detail)
 
-Phase 1 wrap + Phase 2:
-1. **Phase 1 wrap** — auth/billing (M10b), `docker compose` deploy to VPS, seed data backfill, README run-guide
-2. **Phase 2** — intraday (US/Crypto 1m) + live-ish paper replay, screener, data export to git, trading journal, Tauri desktop
+Phase 2:
+1. **Intraday** — US/Crypto 1m bars + minute-level paper replay (Binance pagination + yfinance 1m limits known)
+2. **Screener 2.0** — watchlists, more indicators, fundamental filters
+3. **Journal AI review** — Gemini reads journal entries and gives feedback
+4. **Alerts** — price/indicator push + in-app
+5. **No-code strategy builder** (visual blocks)
+6. **Tauri desktop** wrapper + notifications
+7. **Real deployment** — run `docker compose up --build` on a VPS, domain + HTTPS (compose config ready, not yet tested on server; Docker not installed on dev machine)
 
 ## Key decisions (short version — full reasons in docs/DECISIONS.md)
 
@@ -68,13 +74,16 @@ Phase 1 wrap + Phase 2:
 
 - Tests: `python -m pytest modules app` (from repo root). Run after ANY module change.
 - Backend: `uvicorn app.main:app --reload` → `/health` (dev). Full stack: `docker compose up --build`.
-- Frontend: `cd frontend && npm run dev` (uses `NEXT_PUBLIC_API_URL`, default `http://localhost:8000`). Production: `npm run build && npm run start`.
+- Frontend: `cd frontend && npm run dev` (uses `NEXT_PUBLIC_API_URL`, default `http://localhost:8000`). Production: `npm run build && npm run start` (or the standalone Dockerfile).
 - Data backfill: `python scripts/backfill_india.py --symbols RELIANCE TCS --years 2 --indices`.
 - Live smoke (data → backtest): `python scripts/smoke_backtest.py`.
-- API surface: `/health`, `GET /api/symbols?market=`, `GET /api/ohlcv/{symbol}`, `POST /api/backtest`, `/api/paper/*` (order/account/positions/history/reset), `/api/strategies/*` (save/validate/versions), `/api/assistant/*` (chat/confirm).
-- Env: `GEMINI_API_KEY` enables the real AI chat; `DATA_DIR` roots Parquet + accounts + strategies.
+- Export store to user's own git: `python scripts/export_to_git.py --repo C:/my-data-backup`.
+- API surface: `/health`, `GET /api/symbols?market=`, `GET /api/ohlcv/{symbol}`, `POST /api/backtest`, `/api/paper/*` (order/account/positions/history/reset), `/api/strategies/*` (save=Pro/validate/versions), `/api/assistant/*` (chat=Pro/confirm), `/api/auth/*` (register/login/subscribe/me), `/api/screener/scan`, `/api/journal/*`, `/api/export/csv`.
+- Env: `GEMINI_API_KEY` enables the real AI chat; `DATA_DIR` roots Parquet + accounts + strategies + auth + journal.
+- Auth model: JSON session store (PBKDF2 password hashes, server-side tokens, 30-day expiry). Pro plan gates: strategy save + AI chat. Postgres/Redis in compose for future use.
 - Note: NSE bhavcopy = 1 request/trading day (slow for long ranges — run backfill once, store is Parquet).
 - Note: port 8123 on this machine is used by a local `socksproxy` service — don't bind the API there.
+- Note: Docker is NOT installed on the dev machine — compose config is written but un-tested; verify on the VPS.
 - Python 3.11.8 + git on this machine; Node 22 + npm 10 for the frontend.
 
 ## Owner / stakeholder facts

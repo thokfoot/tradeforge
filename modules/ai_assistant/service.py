@@ -53,7 +53,16 @@ class AIAssistantService:
 
     def chat(self, user_id: str, message_text_or_audio: str) -> AssistantReply:
         prompt = f"{PERSONA}\n\nTrader's message: {message_text_or_audio}"
-        text = self._generator.generate(prompt)
+        try:
+            text = self._generator.generate(prompt)
+        except Exception as exc:
+            return AssistantReply(
+                text=(
+                    "AI assistant is temporarily unavailable "
+                    f"(provider error: {type(exc).__name__}). "
+                    "Try again later."
+                )
+            )
         action_taken = None
         needs_confirmation = False
         code = self._extract_code(text)

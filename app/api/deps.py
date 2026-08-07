@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Callable
 
@@ -60,9 +59,9 @@ _assistant_service: AIAssistantService | None = None
 def assistant_service() -> AIAssistantService:
     global _assistant_service
     if _assistant_service is None:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = settings.gemini_api_key
         if api_key:
-            generator = GeminiProvider(api_key=api_key)
+            generator = GeminiProvider(api_key=api_key, model=settings.gemini_model)
         else:
 
             class _Fallback:
