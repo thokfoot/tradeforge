@@ -19,7 +19,10 @@ def _sizing(cfg: StrategyConfig, cash: float, fill: float) -> int:
     if cfg.position_sizing == "fixed":
         return int(cfg.position_size)
     if cfg.position_sizing == "pct":
-        return int((cash * cfg.position_size / 100.0) // fill)
+        size = int((cash * cfg.position_size / 100.0) // fill)
+        if size > 0:
+            return size
+        return 1 if cash >= fill else 0
     return 0
 
 

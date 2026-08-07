@@ -56,3 +56,46 @@ def test_confirm_action_mismatch():
     service.propose_action("u1", "run backtest")
     assert service.confirm_action("u1", "sell everything") is False
     assert service.confirm_action("u1", "run backtest") is True
+
+
+def test_review_journal_empty():
+    service = AIAssistantService(_FakeGenerator("irrelevant"))
+    assert "journal entries" in service.review_journal("u1", []).lower()
+
+
+def test_review_journal_passes_entries():
+    gen = _FakeGenerator("Pattern: aap choti positions bhi jaldi close karte ho.")
+    service = AIAssistantService(gen)
+    entries = [
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "pnl": 120.0,
+            "rating": 4,
+            "tags": ["momentum"],
+            "note": "Breakout entry, good setup",
+            "lesson": "hold longer",
+        },
+        {
+            "symbol": "TSLA",
+            "side": "SELL",
+            "pnl": -80.0,
+            "rating": 2,
+            "tags": ["revenge"],
+            "note": "entered too fast after loss",
+            "lesson": "no revenge trades",
+        },
+    ]
+    text = service.review_journal("u1", entries)
+    assert "Pattern" in text
+    assert "AAPL" in gen.prompts[0]
+    assert "revenge" in gen.prompts[0]
+
+
+def test_review_journal_provider_error():
+    class _Boom:
+        def generate(self, prompt):
+            raise RuntimeError("network down")
+
+    service = AIAssistantService(_Boom())
+    assert "unavailable" in service.review_journal("u1", [{"symbol": "X"}]).lower()

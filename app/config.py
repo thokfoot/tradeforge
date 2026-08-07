@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-flash-latest"
+    alerts_enabled: bool = False
+    alert_check_interval_seconds: int = 60
 
 
 settings = Settings()

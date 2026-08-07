@@ -15,4 +15,6 @@
 
 **Isolation:** Pure computation — reads data + strategy via contracts, returns results. No side effects. Queued via Redis workers so heavy runs never block the API.
 
-**Status:** Planning. Implement after data layer + contracts.
+**Notes (2026-08-07):** Interval-agnostic (1m/1h/1d all work — fill at open[t+1] of the next bar). `pct` sizing floors to whole shares but buys at least 1 share if the allocation can't afford one (otherwise high-price symbols like BTC never trade).
+
+**Status:** Implemented.

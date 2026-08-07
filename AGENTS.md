@@ -11,7 +11,7 @@ One subscription replaces 4 tools (Streak + Tickertape + Chartink + trading jour
 Markets covered: **India (NSE/BSE — stocks, Nifty 50, Bank Nifty, all indices), US stocks, Crypto.**
 Free data sources at launch, provider-swappable architecture. Later: options/F&O + India intraday.
 
-- Status: **Phase 1 COMPLETE (M1–M10 + wrap: auth/billing, screener, journal, data export, deploy config). 124 tests green, live verified. Next: Phase 2.**
+- Status: **Phase 1 COMPLETE + AI live + Phase 2 #1–#4 (intraday+replay, screener 2.0, journal AI review, alerts) DONE. 161 tests green, live verified. Next: no-code builder, Tauri.**
 - Language/stack: Python (FastAPI) backend, React (Next.js + PWA) frontend, Tauri (Windows later), Postgres + Redis + Parquet, Docker. Module folders use underscores (`modules/market_data`, `modules/backtest_engine`).
 - Business model: Freemium. Pro target ₹199/mo (₹99–199). 10 customers × ₹199 covers server; 25 covers everything.
 - Server: cloud VPS (start Oracle free tier / ₹500-mo Hetzner). NOT the owner's home PC.
@@ -34,7 +34,7 @@ Free data sources at launch, provider-swappable architecture. Later: options/F&O
 
 Rule of thumb for every change: edit inside the module folder only + run tests + update its README. Nothing outside.
 
-## Current phase (Phase 0 + 0.5) — DONE items
+## Current phase — DONE items
 
 - [x] Market + competitor + data-source research (see `docs/RESEARCH.md`)
 - [x] Business/product decisions locked (see `docs/DECISIONS.md`)
@@ -47,14 +47,19 @@ Rule of thumb for every change: edit inside the module folder only + run tests +
 - [x] **Data PoC (Phase 0.5): all 3 markets verified** — India=nse-archives ✅, US=yfinance ✅ (Stooq dead), Crypto=Binance ✅. Scripts in `data-poc/`. Providers locked.
 - [x] **Phase 1 M1–M10 (full product MVP)** — scaffold, contracts (approved), 3 data adapters, backtest engine, data/backtest API, paper trading, strategy storage + sandbox, AI assistant MVP, Next.js PWA frontend. 86 tests green.
 - [x] **Phase 1 wrap** — auth + billing (register/login/subscribe, PBKDF2, session tokens, pro plan gates), screener (technical filters over store), trading journal (Analytics contract), data export (CSV + `scripts/export_to_git.py`), deploy config (compose + nginx + standalone frontend Dockerfile). 124 tests green.
+- [x] **AI assistant LIVE** — `GEMINI_API_KEY` in `.env` → `settings.gemini_api_key`; model `gemini-flash-latest`; Settings `extra="ignore"` so extra env vars don't break startup. Live Hinglish replies verified.
+- [x] **Phase 2 #1 Intraday + replay** — 1m/1h bars with timestamps, interval-scaled default ranges, `POST /api/paper/replay` (backtest → reconstruct fills → replay into paper ledger), Dashboard interval picker + Replay-to-Paper, pct-sizing min-1-share fix.
+- [x] **Phase 2 #2 Screener 2.0** — RSI(14)/Bollinger %B/vol-ratio/SMA20/MACD indicators + filters + sort; `SavedScan`+`ScanStore` + auth-gated API (save/list/delete/run); frontend filters + saved-scan chips. 141 tests green.
+- [x] **Phase 2 #3 Journal AI review** — `AIAssistant.review_journal(user_id, entries)` contract + service method (last-30 entries → Hinglish patterns/strengths/risks/improvements, provider-error fallback); `POST /api/journal/review` (Pro-gated); Journal tab "🤖 AI Review my Journal (Pro)" button. 146 tests green, live verified (real Gemini feedback on actual AAPL/TSLA entries).
+- [x] **Phase 2 #4 Alerts** — new `modules/alerts/`: `AlertRule`/`AlertNotification` contracts + `AlertService` (create/list/delete, PRICE or RSI(14) ABOVE/BELOW one-shot rules, in-app notifications, `check_user`/`check_all`); `/api/alerts/*` (create/list/delete/notifications/clear/check — login-gated); background loop in app lifespan (config-gated `ALERTS_ENABLED`); Alerts tab in frontend. 161 tests green, live verified (AAPL price rule fired on real quote 312.96, RSI rule realistic).
 
 ## What is NEXT (see docs/NEXT-STEPS.md for detail)
 
 Phase 2:
-1. **Intraday** — US/Crypto 1m bars + minute-level paper replay (Binance pagination + yfinance 1m limits known)
-2. **Screener 2.0** — watchlists, more indicators, fundamental filters
-3. **Journal AI review** — Gemini reads journal entries and gives feedback
-4. **Alerts** — price/indicator push + in-app
+1. ~~Intraday + replay~~ **DONE** (1m/1h bars, minute backtest + `POST /api/paper/replay`, frontend interval picker)
+2. ~~Screener 2.0~~ **DONE** (RSI/BB/vol-ratio/MACD filters, saved scans per user, login-gated)
+3. ~~Journal AI review~~ **DONE** (Gemini reads journal entries → Hinglish patterns/feedback via `POST /api/journal/review`, Pro-gated)
+4. ~~Alerts~~ **DONE** (price + RSI one-shot rules, in-app notifications, `/api/alerts/*`, background loop behind `ALERTS_ENABLED`)
 5. **No-code strategy builder** (visual blocks)
 6. **Tauri desktop** wrapper + notifications
 7. **Real deployment** — run `docker compose up --build` on a VPS, domain + HTTPS (compose config ready, not yet tested on server; Docker not installed on dev machine)
@@ -78,8 +83,8 @@ Phase 2:
 - Data backfill: `python scripts/backfill_india.py --symbols RELIANCE TCS --years 2 --indices`.
 - Live smoke (data → backtest): `python scripts/smoke_backtest.py`.
 - Export store to user's own git: `python scripts/export_to_git.py --repo C:/my-data-backup`.
-- API surface: `/health`, `GET /api/symbols?market=`, `GET /api/ohlcv/{symbol}`, `POST /api/backtest`, `/api/paper/*` (order/account/positions/history/reset), `/api/strategies/*` (save=Pro/validate/versions), `/api/assistant/*` (chat=Pro/confirm), `/api/auth/*` (register/login/subscribe/me), `/api/screener/scan`, `/api/journal/*`, `/api/export/csv`.
-- Env: `GEMINI_API_KEY` enables the real AI chat; `DATA_DIR` roots Parquet + accounts + strategies + auth + journal.
+- API surface: `/health`, `GET /api/symbols?market=`, `GET /api/ohlcv/{symbol}`, `POST /api/backtest`, `/api/paper/*` (order/account/positions/history/reset/**replay**), `/api/strategies/*` (save=Pro/validate/versions), `/api/assistant/*` (chat=Pro/confirm), `/api/auth/*` (register/login/subscribe/me), `/api/screener/scan` + `/api/screener/scans/*` (save/list/delete/run — login-gated), `/api/journal/*` (entries + **review**=Pro), `/api/alerts/*` (create/list/delete/notifications/clear/check — login-gated), `/api/export/csv`.
+- Env: `GEMINI_API_KEY` enables the real AI chat (`GEMINI_MODEL` default `gemini-flash-latest`); `DATA_DIR` roots Parquet + accounts + strategies + auth + journal + screener + alerts. `ALERTS_ENABLED=1` + `ALERT_CHECK_INTERVAL_SECONDS` start the alerts background worker (off by default). `.env` may contain frontend vars (`NEXT_PUBLIC_API_URL`) — backend Settings ignores extras.
 - Auth model: JSON session store (PBKDF2 password hashes, server-side tokens, 30-day expiry). Pro plan gates: strategy save + AI chat. Postgres/Redis in compose for future use.
 - Note: NSE bhavcopy = 1 request/trading day (slow for long ranges — run backfill once, store is Parquet).
 - Note: port 8123 on this machine is used by a local `socksproxy` service — don't bind the API there.

@@ -2,13 +2,40 @@ from __future__ import annotations
 
 import threading
 import uuid
+from collections import deque
 from datetime import datetime
-from typing import Callable
+from typing import Callable, Iterable
 
 from modules.paper_trading.store import AccountStore, Ledger
 from modules.shared.contracts import Account, Order, OrderStatus, Position, Trade
 
 DEFAULT_CAPITAL = 100000.0
+
+
+def replay_trades(
+    store: AccountStore, user_id: str, fills: Iterable[tuple[str, str, int, float]]
+) -> list[Trade]:
+    """Replay historical fills into the paper ledger as MARKET orders.
+
+    Each fill is ``(symbol, side, qty, price)``. Orders are placed in sequence,
+    priced at the given historical price, so balance/position rules still apply.
+    """
+    queue: dict[str, deque] = {}
+
+    def pricer(symbol: str) -> float:
+        try:
+            return queue[symbol].popleft()
+        except (KeyError, IndexError):
+            raise RuntimeError(f"no replay price for {symbol}")
+
+    svc = PaperTraderService(store=store, pricer=pricer)
+    before = len(svc.history(user_id))
+    for symbol, side, qty, price in fills:
+        queue.setdefault(symbol, deque()).append(price)
+        order = svc.place_order(user_id, symbol, side, int(qty), "MARKET")
+        if order.status != "FILLED":
+            raise ValueError(f"replay order not filled: {order.status}")
+    return svc.history(user_id)[before:]
 
 
 class PaperTraderService:
@@ -175,9 +202,9 @@ class PaperTraderService:
         with self._lock:
             return list(self._store.get(user_id).trades)
 
-    def reset_account(self, user_id: str) -> Account:
+    def reset_account(self, user_id: str, capital: float = DEFAULT_CAPITAL) -> Account:
         with self._lock:
-            self._store._ledgers[user_id] = Ledger(user_id=user_id, balance=DEFAULT_CAPITAL)
+            self._store._ledgers[user_id] = Ledger(user_id=user_id, balance=capital)
             self._store.save(user_id)
             return self.account(user_id)
 

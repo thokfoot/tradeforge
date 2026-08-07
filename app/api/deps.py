@@ -10,10 +10,11 @@ from app.config import settings
 from app.providers import get_provider
 from modules.ai_assistant import AIAssistantService
 from modules.ai_assistant.provider import GeminiProvider
+from modules.alerts import AlertService, AlertStore
 from modules.auth_billing import AuthService, UserStore
 from modules.market_data.storage.parquet_store import ParquetStore
 from modules.paper_trading import AccountStore, PaperTraderService
-from modules.screener import ScreenerService
+from modules.screener import ScanStore, ScreenerService
 from modules.shared.contracts import User
 from modules.strategy_engine import StrategyService, StrategyStore
 from modules.trading_journal import JournalService, JournalStore
@@ -30,15 +31,18 @@ def parquet_store() -> ParquetStore:
 _paper_store: AccountStore | None = None
 
 
-def paper_service(market: str = "IN") -> PaperTraderService:
+def paper_store() -> AccountStore:
     global _paper_store
     if _paper_store is None:
         _paper_store = AccountStore(Path(settings.data_dir) / "accounts")
+    return _paper_store
 
+
+def paper_service(market: str = "IN") -> PaperTraderService:
     def pricer(symbol: str) -> float:
         return provider_for(market).fetch_quote(symbol).price
 
-    return PaperTraderService(_paper_store, pricer=pricer)
+    return PaperTraderService(paper_store(), pricer=pricer)
 
 
 _strategy_service: StrategyService | None = None
@@ -131,3 +135,23 @@ def screener_service(market: str) -> ScreenerService:
         )
 
     return ScreenerService(loader)
+
+
+_scan_store: ScanStore | None = None
+
+
+def scan_store() -> ScanStore:
+    global _scan_store
+    if _scan_store is None:
+        _scan_store = ScanStore(Path(settings.data_dir) / "screener")
+    return _scan_store
+
+
+_alert_service: AlertService | None = None
+
+
+def alert_service() -> AlertService:
+    global _alert_service
+    if _alert_service is None:
+        _alert_service = AlertService(AlertStore(Path(settings.data_dir) / "alerts"))
+    return _alert_service

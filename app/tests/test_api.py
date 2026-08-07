@@ -296,6 +296,139 @@ def test_assistant_chat_unauth_401(client, monkeypatch):
     assert resp.status_code == 401
 
 
+def test_journal_review_pro(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.ai_assistant import AIAssistantService
+    from modules.trading_journal import JournalService, JournalStore
+
+    monkeypatch.setattr(
+        deps,
+        "_journal_service",
+        JournalService(JournalStore(tmp_path / "journal")),
+    )
+    deps._journal_service.add_entry(
+        user_id="demo",
+        trade_id="t1",
+        note="bought breakout, held well",
+        symbol="AAPL",
+        pnl=120.0,
+        tags=["momentum"],
+    )
+    monkeypatch.setattr(
+        deps,
+        "_assistant_service",
+        AIAssistantService(type("G", (), {"generate": lambda self, p: "Good discipline: AAPL hold."})()),
+    )
+    token = pro_token(monkeypatch, tmp_path)
+    resp = client.post(
+        "/api/journal/review",
+        json={"user_id": "demo"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["entries"] == 1
+    assert "AAPL" in body["text"]
+
+
+def test_journal_review_unauth_401(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.ai_assistant import AIAssistantService
+    from modules.trading_journal import JournalService, JournalStore
+
+    monkeypatch.setattr(
+        deps,
+        "_journal_service",
+        JournalService(JournalStore(tmp_path / "journal")),
+    )
+    monkeypatch.setattr(
+        deps,
+        "_assistant_service",
+        AIAssistantService(type("G", (), {"generate": lambda self, p: "x"})()),
+    )
+    resp = client.post("/api/journal/review", json={"user_id": "demo"})
+    assert resp.status_code == 401
+
+
+def test_alerts_crud(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.alerts import AlertService, AlertStore
+
+    service = AlertService(AlertStore(tmp_path / "alerts"))
+    monkeypatch.setattr(deps, "_alert_service", service)
+    token = pro_token(monkeypatch, tmp_path)
+
+    resp = client.post(
+        "/api/alerts",
+        json={"symbol": "AAPL", "market": "US", "metric": "PRICE", "condition": "ABOVE", "value": 100.0},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    rule_id = resp.json()["rule_id"]
+
+    resp = client.get("/api/alerts", headers={"Authorization": f"Bearer {token}"})
+    assert len(resp.json()) == 1
+
+    resp = client.delete(f"/api/alerts/{rule_id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+
+    resp = client.delete(f"/api/alerts/{rule_id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 404
+
+
+def test_alerts_validation_422(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.alerts import AlertService, AlertStore
+
+    monkeypatch.setattr(deps, "_alert_service", AlertService(AlertStore(tmp_path / "alerts")))
+    token = pro_token(monkeypatch, tmp_path)
+    resp = client.post(
+        "/api/alerts",
+        json={"symbol": "AAPL", "market": "US", "metric": "PRICE", "condition": "ABOVE", "value": -5},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_alerts_check_and_notifications(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.alerts import AlertService, AlertStore
+
+    service = AlertService(AlertStore(tmp_path / "alerts"))
+    monkeypatch.setattr(deps, "_alert_service", service)
+    token = pro_token(monkeypatch, tmp_path)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    client.post(
+        "/api/alerts",
+        json={"symbol": "AAPL", "market": "US", "metric": "PRICE", "condition": "ABOVE", "value": 100.0},
+        headers=headers,
+    )
+    resp = client.post("/api/alerts/check", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["triggered"] == 1
+    assert "AAPL" in resp.json()["notifications"][0]["message"]
+
+    resp = client.get("/api/alerts/notifications", headers=headers)
+    assert len(resp.json()) == 1
+
+    resp = client.post("/api/alerts/notifications/clear", headers=headers)
+    assert resp.json()["cleared"] == 1
+
+    resp = client.get("/api/alerts/notifications", headers=headers)
+    assert resp.json() == []
+
+
+def test_alerts_unauth_401(client):
+    resp = client.post(
+        "/api/alerts",
+        json={"symbol": "AAPL", "market": "US", "metric": "PRICE", "condition": "ABOVE", "value": 100.0},
+    )
+    assert resp.status_code == 401
+    resp = client.get("/api/alerts/notifications")
+    assert resp.status_code == 401
+
+
 def test_assistant_confirm(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.ai_assistant import AIAssistantService
@@ -408,3 +541,56 @@ def test_export_csv_missing_404(client, tmp_path, monkeypatch):
     monkeypatch.setattr(deps, "parquet_store", lambda: ParquetStore(tmp_path))
     resp = client.get("/api/export/csv", params={"market": "IN", "symbol": "MISSING"})
     assert resp.status_code == 404
+
+
+def test_bar_timestamp_intraday_includes_time():
+    from app.api.market import bar_timestamp
+
+    ts = pd.Timestamp("2024-01-02 09:31")
+    assert bar_timestamp(ts, "1m") == "2024-01-02 09:31"
+    assert bar_timestamp(ts, "1h") == "2024-01-02 09:31"
+    assert bar_timestamp(ts, "1d") == "2024-01-02"
+
+
+def test_default_range_shrinks_for_intraday():
+    from app.api.market import default_range
+
+    assert default_range("1m").days == 7
+    assert default_range("1h").days == 60
+    assert default_range("1d").days == 730
+
+
+def test_ohlcv_intraday_format(client):
+    resp = client.get("/api/ohlcv/TEST", params={"market": "IN", "interval": "1m"})
+    assert resp.status_code == 200
+    assert " 00:00" in resp.json()["bars"][0]["date"]
+
+
+def test_paper_replay(client, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from app.api import deps
+    from modules.paper_trading import AccountStore
+
+    monkeypatch.setattr(
+        deps, "paper_store", lambda: AccountStore(Path(tmp_path) / "accounts")
+    )
+    resp = client.post(
+        "/api/paper/replay",
+        json={
+            "user_id": "demo",
+            "market": "IN",
+            "symbol": "TEST",
+            "interval": "1d",
+            "start": "2024-01-01",
+            "end": "2024-01-10",
+            "code": (
+                "signals = (data['close'] > data['close'].rolling(3).mean()).astype(int)"
+            ),
+            "initial_capital": 100000.0,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["symbol"] == "TEST"
+    assert body["round_trips"] >= 0

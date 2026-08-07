@@ -9,6 +9,13 @@ import {
 } from "lightweight-charts";
 import type { Bar } from "@/lib/api";
 
+function toChartTime(date: string): Time {
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(date)) {
+    return Math.floor(new Date(date.replace(" ", "T")).getTime() / 1000) as Time;
+  }
+  return date as Time;
+}
+
 export default function Chart({ bars }: { bars: Bar[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -36,7 +43,7 @@ export default function Chart({ bars }: { bars: Bar[] }) {
     });
     candleSeries.setData(
       bars.map((b) => ({
-        time: b.date as Time,
+        time: toChartTime(b.date),
         open: b.open,
         high: b.high,
         low: b.low,

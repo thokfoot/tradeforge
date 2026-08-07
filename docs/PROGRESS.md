@@ -11,6 +11,49 @@ Format:
 
 ---
 
+## 2026-08-07 — Phase 2 #4: Alerts (price + RSI, in-app notifications)
+- **New module `modules/alerts/`** (isolated, no cross-module imports): `AlertRule` + `AlertNotification` added to shared contracts (models + `AlertService` Protocol, additive); `AlertStore` (per-user JSON: rules + notifications, capped 200); `AlertService` (create/list/delete/notifications/clear + `check_user`/`check_all`). RSI(14) is a local copy of the Wilder formula — never touches screener internals.
+- **Rule model**: PRICE or RSI metric × ABOVE/BELOW condition × target value. One-shot: on hit the rule flips `active=False` and appends an in-app notification (no spam). Provider errors on one rule are skipped, never crash the check.
+- **API** (`app/api/alerts.py`): `POST /api/alerts` (create, login-gated, 422 on bad metric/condition/non-positive value), `GET /api/alerts`, `DELETE /api/alerts/{rule_id}`, `GET /api/alerts/notifications`, `POST /api/alerts/notifications/clear`, `POST /api/alerts/check`. `deps.alert_service()` singleton.
+- **Background worker**: `app/main.py` lifespan starts an asyncio loop calling `check_all(provider_for)` every `alert_check_interval_seconds` — only when `settings.alerts_enabled` (`ALERTS_ENABLED=0` default; enable on VPS). TestClient runs don't start it.
+- **Frontend**: new Alerts tab — form (symbol/market/metric/condition/value), Add + Check-now buttons, rules list with delete + active/fired status, notifications list + clear.
+- **Test suite: 161 passing** (was 146; +11 alerts module, +4 alerts API). Live verified: create PRICE-ABOVE-50 AAPL rule → `POST /api/alerts/check` fired on real quote 312.96 (Hinglish message, rule deactivated) → notification listed → delete → clear. BTCUSDT RSI-ABOVE-80 stayed active (not triggered — realistic).
+- Commit: next commit = alerts.
+
+**Next:** Phase 2 — no-code strategy builder, Tauri, real VPS deploy. See NEXT-STEPS.md.
+
+## 2026-08-07 — Phase 2 #3: Journal AI review (Gemini reads your trading journal)
+- **Contract**: `AIAssistant` Protocol (in `modules/shared/contracts/interfaces.py`) gains `review_journal(user_id, entries) -> str`. Additive — no other consumer changed.
+- **Service**: `modules/ai_assistant/service.py` `review_journal()` — builds a text summary of the last 30 entries (symbol/side/pnl/rating/tags/note/lesson) → Hinglish prompt asking for observed patterns, strengths, risks, and 3 improvement points (educational framing, no advice). `try/except` → friendly fallback message on provider error. Same for `chat()`.
+- **API**: `POST /api/journal/review` (`app/api/journal.py`) — loads entries via `deps.journal_service()`, calls `deps.assistant_service().review_journal(...)`, returns `{text, entries}`. Pro-gated with `deps.require_plan("pro")`.
+- **Frontend**: `frontend/lib/api.ts` `journalReview(userId, token)`; Journal tab gets "🤖 AI Review my Journal (Pro)" button (disabled without token/entries, shows spinner + ai-reply box). `page.tsx` now passes token/user to Journal.
+- **Test suite: 146 passing** (was 141). Live verified: register→subscribe(pro)→2 journal entries→`POST /api/journal/review` returned real Gemini Hinglish feedback referencing the actual AAPL (momentum/patience) and TSLA (revenge) entries. Unauthorized → 401.
+- Commit: `9837f12` (journal AI review + docs).
+
+**Next:** Phase 2 — alerts (Redis-backed), no-code builder, Tauri, real VPS deploy. See NEXT-STEPS.md.
+
+## 2026-08-07 — Phase 2 #2: Screener 2.0 (indicators + saved scans)
+- **New indicators** on `ScreenerRow` (additive, backward compatible): `rsi_14` (Wilder ewm), `bb_position` (Bollinger %B 20,2), `vol_ratio_20` (last vol / prior-20 avg), `above_sma_20`, `macd_above_signal`. New filters: `min/max_rsi`, `min/max_bb_position`, `min_vol_ratio`, `above/below_sma_20`, `macd_above/below_signal`. New sortable: `rsi_14`, `bb_position`, `vol_ratio_20`.
+- **Saved scans** (`modules/screener/scans.py`): `SavedScan` + `ScanStore` (per-user JSON). API: `POST /api/screener/scans/save`, `GET /api/screener/scans`, `DELETE /api/screener/scans/{id}`, `POST /api/screener/scans/{id}/run` — all gated by login token (`current_user`).
+- **Frontend**: Screener tab now has RSI/%B/vol-ratio/SMA20/MACD filters, sort dropdown, and Saved Scans (name → save, run, delete chips). `page.tsx` passes token/user to Screener.
+- **Test suite: 141 passing** (was 131). Live verified: US scan RSI>60 (matches), save→list→run-by-id (MSFT top)→unauth 401→delete. Note: first live scan attempt hung on cold yfinance — retry was fast; consider a per-symbol fetch timeout later.
+- Commit: next = screener 2.0.
+
+**Next:** Phase 2 — journal AI review, alerts, no-code builder, Tauri, real VPS deploy. See NEXT-STEPS.md.
+
+## 2026-08-07 — AI live + Phase 2 start: Intraday & paper replay
+- **AI assistant now LIVE with real Gemini key.** Owner pasted `GEMINI_API_KEY` in `.env`; wired via `settings.gemini_api_key` (pydantic `extra="ignore"` so `NEXT_PUBLIC_API_URL` in `.env` no longer breaks `Settings()`). Model default → `gemini-flash-latest` (2.0-flash no longer exists), overridable via `GEMINI_MODEL`. `chat()` returns a friendly message instead of 500 when the provider errors. Live verified: real Gemini Hinglish reply for "RSI kya hota hai?". Note: first key had "429 prepayment credits depleted" → owner created a new Google project + key; that one works.
+- **Phase 2 #1 — Intraday + replay (US/Crypto 1m/1h):**
+  - `app/api/market.py`: intraday bars now include time (`%Y-%m-%d %H:%M`); default ranges scale with interval (1m→7d, 1h→60d, daily→730d) so the frontend/API can't request 730d of 1m.
+  - `modules/paper_trading/service.py`: new `replay_trades(store, user_id, fills)` (queued historical prices → MARKET fills through the normal order path, balance/position rules enforced); `reset_account(user_id, capital)` accepts custom capital.
+  - `app/api/paper.py`: new `POST /api/paper/replay` — backtest on chosen interval → reconstruct entry/exit fills (entry derived from trade pnl+fees) → resets paper account to `initial_capital` and replays → returns fills/round_trips/account/metrics.
+  - **Bug fixed (backtest sizing):** `_sizing` pct mode floored to 0 shares on high-price symbols (BTC ~$60k with 10% of 100k) → no trades ever. Now buys 1 share if the allocation can't afford one. This silently affected ALL pct backtests on expensive symbols.
+  - Frontend: Dashboard has an Interval selector (IN=1d only, US/CRYPTO=1d/1h/1m), chart converts intraday dates to epoch seconds, backtest uses interval-appropriate date ranges, "Replay to Paper" button (login) shows paper equity + return, trade table shows intraday timestamps.
+- **Test suite: 131 passing.** Live verified end-to-end: OHLCV BTCUSDT 1m (11085 bars), 1m backtest (225 trades, 0.3473%), paper replay (450 fills, equity 100351.57 = same return), paper account persisted.
+- Commit: `3388a42` (AI live), next commit = intraday+replay.
+
+**Next:** Phase 2 — screener 2.0, journal AI review, alerts, no-code builder, Tauri, real VPS deploy. See NEXT-STEPS.md.
+
 ## 2026-08-07 — Phase 1 wrap (auth, screener, journal, export, deploy) — "complete it till end"
 - **Auth + billing** (`modules/auth_billing/`): `UserStore` (JSON, PBKDF2-hashed passwords, server-side session tokens with 30-day expiry), `AuthService` (register/login/create_subscription/user_for_token — satisfies `AuthService` contract). `/api/auth/*` (register/login/subscribe/me). Pro plan gates (`deps.require_plan("pro")`) on strategy save + AI chat. 13 tests.
 - **Screener** (`modules/screener/`): `ScreenerService` (price/volume/1d-5d-1m-3m change, above/below SMA 50/200, sortable). `/api/screener/scan`. 7 tests.

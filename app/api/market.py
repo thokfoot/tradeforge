@@ -11,6 +11,20 @@ from app.api import deps
 router = APIRouter(prefix="/api")
 
 
+def default_range(interval: str) -> timedelta:
+    if interval.endswith("m"):
+        return timedelta(days=7)
+    if interval.endswith("h"):
+        return timedelta(days=60)
+    return timedelta(days=730)
+
+
+def bar_timestamp(ts, interval: str) -> str:
+    if interval.endswith("m") or interval.endswith("h"):
+        return ts.strftime("%Y-%m-%d %H:%M")
+    return ts.strftime("%Y-%m-%d")
+
+
 @router.get("/symbols")
 def list_symbols(
     market: str = Query(..., description="IN | US | CRYPTO"),
@@ -27,7 +41,7 @@ def get_ohlcv(
     end: date | None = Query(None),
 ) -> dict:
     if start is None:
-        start = date.today() - timedelta(days=730)
+        start = date.today() - default_range(interval)
     if end is None:
         end = date.today()
     try:
@@ -40,7 +54,7 @@ def get_ohlcv(
         raise HTTPException(status_code=404, detail=f"no data for {symbol}")
     bars = [
         {
-            "date": ts.strftime("%Y-%m-%d"),
+            "date": bar_timestamp(ts, interval),
             "open": round(float(row["open"]), 4),
             "high": round(float(row["high"]), 4),
             "low": round(float(row["low"]), 4),

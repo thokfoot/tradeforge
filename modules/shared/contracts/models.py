@@ -209,3 +209,31 @@ class ScreenerRow:
     avg_volume_20: float | None = None
     above_sma_50: bool | None = None
     above_sma_200: bool | None = None
+    rsi_14: float | None = None
+    bb_position: float | None = None
+    vol_ratio_20: float | None = None
+    above_sma_20: bool | None = None
+    macd_above_signal: bool | None = None
+
+
+@dataclass(frozen=True)
+class AlertRule:
+    rule_id: str
+    user_id: str
+    symbol: str
+    market: Market
+    metric: Literal["PRICE", "RSI"]
+    condition: Literal["ABOVE", "BELOW"]
+    value: float
+    active: bool = True
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class AlertNotification:
+    id: str
+    user_id: str
+    rule_id: str
+    symbol: str
+    message: str
+    created_at: datetime | None = None

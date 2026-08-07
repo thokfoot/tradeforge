@@ -15,4 +15,6 @@
 
 **Isolation:** Owns user paper accounts exclusively. Reads market data via contract.
 
-**Status:** Planning.
+**Notes (2026-08-07):** `replay_trades(store, user_id, fills)` replays historical fills (symbol, side, qty, price) as MARKET orders through the normal order path — balance/position rules still apply. `reset_account(user_id, capital)` accepts a custom starting capital (used by `/api/paper/replay`).
+
+**Status:** Implemented.

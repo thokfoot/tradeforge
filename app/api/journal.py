@@ -56,3 +56,18 @@ def delete_entry(entry_id: str, user_id: str = "demo") -> dict:
     if not deleted:
         raise HTTPException(status_code=404, detail="entry not found")
     return {"deleted": True}
+
+
+class ReviewRequest(BaseModel):
+    user_id: str = "demo"
+
+
+@router.post("/review")
+def review_journal(
+    req: ReviewRequest, user: User = Depends(deps.require_plan("pro"))
+) -> dict:
+    entries = deps.journal_service().list_entries(req.user_id)
+    text = deps.assistant_service().review_journal(
+        req.user_id, [asdict(e) for e in entries]
+    )
+    return {"text": text, "entries": len(entries)}

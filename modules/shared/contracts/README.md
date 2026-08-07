@@ -86,3 +86,6 @@ class NotificationService(Protocol):
 
 ## Status
 Interfaces above are PROPOSED (Phase 1). Confirm naming/signatures before implementing modules.
+
+## Model changes (implemented, additive only)
+- `ScreenerRow` (Screener 2.0, 2026-08-07): added `rsi_14`, `bb_position` (Bollinger %B 0..1), `vol_ratio_20` (last vol / prior-20 avg), `above_sma_20`, `macd_above_signal`. All default `None` — backward compatible with Phase 1 consumers.

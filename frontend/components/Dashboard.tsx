@@ -8,6 +8,7 @@ import {
   csvExportUrl,
   getOhlcv,
   getSymbols,
+  replayPaper,
   runBacktest,
   saveStrategy,
   MARKETS,
@@ -17,6 +18,25 @@ import {
   type SymbolInfo,
   type User,
 } from "@/lib/api";
+
+const INTERVALS: { value: string; label: string }[] = [
+  { value: "1d", label: "1D" },
+  { value: "1h", label: "1H" },
+  { value: "1m", label: "1M" },
+];
+
+const INTERVALS_BY_MARKET: Record<Market, string[]> = {
+  IN: ["1d"],
+  US: ["1d", "1h", "1m"],
+  CRYPTO: ["1d", "1h", "1m"],
+};
+
+function startDateFor(interval: string): string {
+  const days = interval === "1m" ? 7 : interval === "1h" ? 60 : 2191;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
 
 const DEFAULT_CODE = `# signals: 1 = long, 0 = flat, -1 = short
 # available: data (open/high/low/close/volume), params, pd, np
@@ -30,12 +50,14 @@ export default function Dashboard({ token, user }: { token: string | null; user:
   const [market, setMarket] = useState<Market>("IN");
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
   const [symbol, setSymbol] = useState("");
+  const [interval, setInterval] = useState("1d");
   const [bars, setBars] = useState<Bar[]>([]);
   const [ohlcvError, setOhlcvError] = useState("");
   const [code, setCode] = useState(DEFAULT_CODE);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [replayMsg, setReplayMsg] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMessage, setAiMessage] = useState("");
   const [aiReply, setAiReply] = useState<{ text: string; needs_confirmation: boolean } | null>(null);
@@ -64,7 +86,7 @@ export default function Dashboard({ token, user }: { token: string | null; user:
     let cancelled = false;
     setBars([]);
     setOhlcvError("");
-    getOhlcv(market, symbol)
+    getOhlcv(market, symbol, interval)
       .then((r) => {
         if (cancelled) return;
         setBars(r.bars);
@@ -73,7 +95,7 @@ export default function Dashboard({ token, user }: { token: string | null; user:
     return () => {
       cancelled = true;
     };
-  }, [market, symbol]);
+  }, [market, symbol, interval]);
 
   async function onRun() {
     setRunning(true);
@@ -83,8 +105,8 @@ export default function Dashboard({ token, user }: { token: string | null; user:
       const res = await runBacktest({
         market,
         symbol,
-        interval: "1d",
-        start: "2019-01-01",
+        interval,
+        start: startDateFor(interval),
         end: new Date().toISOString().slice(0, 10),
         code,
         params: {},
@@ -97,6 +119,32 @@ export default function Dashboard({ token, user }: { token: string | null; user:
       setError(String((e as Error).message ?? e));
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function onReplay() {
+    if (!token) return;
+    setReplayMsg("Replaying...");
+    setError("");
+    try {
+      const res = await replayPaper({
+        user_id: "demo",
+        market,
+        symbol,
+        interval,
+        start: startDateFor(interval),
+        end: new Date().toISOString().slice(0, 10),
+        code,
+        initial_capital: 100000,
+        position_sizing: "pct",
+        position_size: 10,
+      });
+      setReplayMsg(
+        `Replayed ${res.round_trips} round trips · paper equity ₹${res.account.equity.toFixed(0)} · return ${res.metrics.total_return_pct}%`
+      );
+    } catch (e) {
+      setReplayMsg("");
+      setError(String((e as Error).message ?? e));
     }
   }
 
@@ -156,6 +204,25 @@ export default function Dashboard({ token, user }: { token: string | null; user:
             ))}
           </select>
         </label>
+        <label>
+          Interval
+          <select
+            value={interval}
+            onChange={(e) => {
+              const iv = e.target.value;
+              const allowed = INTERVALS_BY_MARKET[market];
+              setInterval(allowed.includes(iv) ? iv : allowed[0]);
+            }}
+          >
+            {INTERVALS.filter((i) => INTERVALS_BY_MARKET[market].includes(i.value)).map(
+              (i) => (
+                <option key={i.value} value={i.value}>
+                  {i.label}
+                </option>
+              )
+            )}
+          </select>
+        </label>
         {symbol && (
           <a className="csv-link" href={csvExportUrl(market, symbol)}>
             ⬇ CSV export
@@ -179,6 +246,11 @@ export default function Dashboard({ token, user }: { token: string | null; user:
               {running ? "Running..." : "Run Backtest"}
             </button>
             {token ? (
+              <button className="ghost" onClick={onReplay}>
+                Replay to Paper
+              </button>
+            ) : null}
+            {token ? (
               <button className="ghost" onClick={onSave}>
                 Save Strategy (Pro)
               </button>
@@ -186,6 +258,7 @@ export default function Dashboard({ token, user }: { token: string | null; user:
               <span className="muted small">Login to save strategies</span>
             )}
           </div>
+          {replayMsg && <p className="ok small">{replayMsg}</p>}
           {error && <p className="error">{error}</p>}
         </div>
 
@@ -214,7 +287,7 @@ export default function Dashboard({ token, user }: { token: string | null; user:
                 <tbody>
                   {result.trades.map((t) => (
                     <tr key={t.order_id}>
-                      <td>{t.timestamp.slice(0, 10)}</td>
+                      <td>{t.timestamp.slice(0, interval.endsWith("d") ? 10 : 16)}</td>
                       <td className={t.side === "BUY" ? "buy" : "sell"}>{t.side}</td>
                       <td>{t.qty}</td>
                       <td>{t.price.toFixed(2)}</td>

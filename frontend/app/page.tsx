@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Alerts from "@/components/Alerts";
 import Auth from "@/components/Auth";
 import Dashboard from "@/components/Dashboard";
 import Journal from "@/components/Journal";
@@ -8,13 +9,14 @@ import Paper from "@/components/Paper";
 import Screener from "@/components/Screener";
 import type { User } from "@/lib/api";
 
-type Tab = "dashboard" | "screener" | "paper" | "journal";
+type Tab = "dashboard" | "screener" | "paper" | "journal" | "alerts";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "dashboard", label: "Charts + Backtest" },
   { id: "screener", label: "Screener" },
   { id: "paper", label: "Paper Trading" },
   { id: "journal", label: "Journal" },
+  { id: "alerts", label: "Alerts" },
 ];
 
 export default function Home() {
@@ -69,9 +71,10 @@ export default function Home() {
       </nav>
 
       {tab === "dashboard" && <Dashboard token={token} user={user} />}
-      {tab === "screener" && <Screener />}
+      {tab === "screener" && <Screener token={token} user={user} />}
       {tab === "paper" && <Paper />}
-      {tab === "journal" && <Journal />}
+      {tab === "journal" && <Journal token={token} user={user} />}
+      {tab === "alerts" && <Alerts token={token} user={user} />}
 
       <footer className="disclaimer small">
         ⚠️ Educational use only. Past performance does not guarantee future results. Paper trading — no real orders.

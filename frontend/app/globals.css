@@ -55,6 +55,25 @@ body {
   flex-wrap: wrap;
 }
 
+.saved-scans {
+  align-items: flex-end;
+}
+
+.scan-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scan-chip {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -128,6 +147,11 @@ button:disabled {
   color: var(--down);
   font-size: 13px;
   white-space: pre-wrap;
+}
+
+.ok {
+  color: var(--up);
+  font-size: 13px;
 }
 
 .result {

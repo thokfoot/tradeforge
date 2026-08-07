@@ -1,6 +1,6 @@
 import pytest
 
-from modules.paper_trading import AccountStore, PaperTraderService
+from modules.paper_trading import AccountStore, PaperTraderService, replay_trades
 from modules.shared.contracts.interfaces import PaperTrader
 
 
@@ -96,3 +96,35 @@ def test_persistence(tmp_path):
     reloaded = PaperTraderService(store=reloaded_store, pricer=lambda s: 100.0)
     assert len(reloaded.positions("u1")) == 1
     assert reloaded.positions("u1")[0].qty == 10
+
+
+def test_reset_account_with_capital(tmp_path):
+    store = AccountStore(tmp_path / "accounts")
+    svc = PaperTraderService(store=store, pricer=lambda s: 100.0)
+    account = svc.reset_account("u1", 50000.0)
+    assert account.balance == 50000.0
+
+
+def test_replay_trades_round_trips(tmp_path):
+    store = AccountStore(tmp_path / "accounts")
+    fills = [
+        ("AAPL", "BUY", 10, 100.0),
+        ("AAPL", "SELL", 10, 110.0),
+        ("MSFT", "BUY", 5, 200.0),
+        ("MSFT", "SELL", 5, 210.0),
+    ]
+    trades = replay_trades(store, "u1", fills)
+    assert len(trades) == 2
+    assert all(t.pnl > 0 for t in trades)
+    assert sum(t.pnl for t in trades) == 150.0
+    assert len(PaperTraderService(store=store, pricer=lambda s: 100.0).positions("u1")) == 0
+
+
+def test_replay_trades_respects_balance(tmp_path):
+    store = AccountStore(tmp_path / "accounts")
+    with pytest.raises(ValueError):
+        replay_trades(
+            store,
+            "u1",
+            [("AAPL", "BUY", 2000, 100.0)],
+        )

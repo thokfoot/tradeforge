@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 import {
   addJournalEntry,
   deleteJournal,
+  journalReview,
   listJournal,
   type JournalEntry,
+  type User,
 } from "@/lib/api";
 
 const USER_ID = "demo";
 
-export default function Journal() {
+export default function Journal({ token, user }: { token: string | null; user: User | null }) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [tradeId, setTradeId] = useState("");
   const [symbol, setSymbol] = useState("");
@@ -22,6 +24,8 @@ export default function Journal() {
   const [rating, setRating] = useState(3);
   const [tags, setTags] = useState("");
   const [error, setError] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const [review, setReview] = useState("");
 
   async function refresh() {
     setEntries(await listJournal(USER_ID));
@@ -62,6 +66,21 @@ export default function Journal() {
       await refresh();
     } catch (err) {
       setError(String((err as Error).message ?? err));
+    }
+  }
+
+  async function onReview() {
+    if (!token) return;
+    setReviewing(true);
+    setError("");
+    setReview("");
+    try {
+      const res = await journalReview(USER_ID, token);
+      setReview(res.text);
+    } catch (err) {
+      setError(String((err as Error).message ?? err));
+    } finally {
+      setReviewing(false);
     }
   }
 
@@ -115,6 +134,22 @@ export default function Journal() {
           ))}
         </section>
       )}
+
+      <section className="assistant">
+        <button
+          className="small"
+          onClick={onReview}
+          disabled={!token || reviewing || entries.length === 0}
+        >
+          {reviewing ? "Reviewing..." : "🤖 AI Review my Journal (Pro)"}
+        </button>
+        {!token && <p className="muted small">Pro login required for AI journal review.</p>}
+        {review && (
+          <div className="result ai-reply">
+            <pre className="small">{review}</pre>
+          </div>
+        )}
+      </section>
     </>
   );
 }

@@ -116,6 +116,21 @@ export interface ScreenerRow {
   avg_volume_20: number | null;
   above_sma_50: boolean | null;
   above_sma_200: boolean | null;
+  rsi_14: number | null;
+  bb_position: number | null;
+  vol_ratio_20: number | null;
+  above_sma_20: boolean | null;
+  macd_above_signal: boolean | null;
+}
+
+export interface SavedScan {
+  id: string;
+  user_id: string;
+  name: string;
+  market: Market;
+  filters: Record<string, unknown>;
+  limit: number;
+  created_at: string | null;
 }
 
 export interface JournalEntry {
@@ -246,12 +261,66 @@ export function resetAccount(userId: string, market: Market): Promise<Account> {
   return request(`/api/paper/reset?user_id=${userId}&market=${market}`, { method: "POST" });
 }
 
+export function replayPaper(payload: {
+  user_id: string;
+  market: Market;
+  symbol: string;
+  interval: string;
+  start: string;
+  end: string;
+  code: string;
+  params?: Record<string, number>;
+  initial_capital?: number;
+  position_sizing?: "pct" | "fixed";
+  position_size?: number;
+}): Promise<{
+  symbol: string;
+  interval: string;
+  fills: number;
+  round_trips: number;
+  account: Account;
+  metrics: { total_return_pct: number; total_trades: number; win_rate_pct: number };
+}> {
+  return request("/api/paper/replay", json("POST", payload));
+}
+
 export function screenerScan(
   market: Market,
   filters: Record<string, unknown>,
   limit: number
 ): Promise<{ market: Market; scanned: number; count: number; results: ScreenerRow[] }> {
   return request("/api/screener/scan", json("POST", { market, filters, limit }));
+}
+
+export function saveScan(
+  name: string,
+  market: Market,
+  filters: Record<string, unknown>,
+  limit: number,
+  token: string
+): Promise<SavedScan> {
+  return request("/api/screener/scans/save", json("POST", { name, market, filters, limit }, token));
+}
+
+export function listScans(token: string): Promise<SavedScan[]> {
+  return request("/api/screener/scans", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function deleteScan(scanId: string, token: string): Promise<{ deleted: boolean }> {
+  return request(`/api/screener/scans/${scanId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function runSavedScan(
+  scanId: string,
+  token: string
+): Promise<{ scan_id: string; name: string; market: Market; scanned: number; count: number; results: ScreenerRow[] }> {
+  return request(`/api/screener/scans/${scanId}/run`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
 export function addJournalEntry(payload: {
@@ -273,10 +342,73 @@ export function listJournal(userId: string): Promise<JournalEntry[]> {
   return request(`/api/journal?user_id=${userId}`);
 }
 
+export function journalReview(userId: string, token: string): Promise<{ text: string; entries: number }> {
+  return request("/api/journal/review", json("POST", { user_id: userId }, token));
+}
+
 export function deleteJournal(entryId: string, userId: string): Promise<{ deleted: boolean }> {
   return request(`/api/journal/${entryId}?user_id=${userId}`, { method: "DELETE" });
 }
 
 export function csvExportUrl(market: Market, symbol: string, interval: string = "1d"): string {
   return `${API_URL}/api/export/csv?market=${market}&symbol=${encodeURIComponent(symbol)}&interval=${interval}`;
+}
+
+export interface AlertRule {
+  rule_id: string;
+  user_id: string;
+  symbol: string;
+  market: Market;
+  metric: "PRICE" | "RSI";
+  condition: "ABOVE" | "BELOW";
+  value: number;
+  active: boolean;
+  created_at: string | null;
+}
+
+export interface AlertNotification {
+  id: string;
+  user_id: string;
+  rule_id: string;
+  symbol: string;
+  message: string;
+  created_at: string | null;
+}
+
+export function listAlerts(token: string): Promise<AlertRule[]> {
+  return request("/api/alerts", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function createAlert(
+  token: string,
+  body: { symbol: string; market: Market; metric: "PRICE" | "RSI"; condition: "ABOVE" | "BELOW"; value: number }
+): Promise<AlertRule> {
+  return request("/api/alerts", json("POST", body, token));
+}
+
+export function deleteAlert(token: string, ruleId: string): Promise<{ deleted: boolean }> {
+  return request(`/api/alerts/${ruleId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function listAlertNotifications(token: string): Promise<AlertNotification[]> {
+  return request("/api/alerts/notifications", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function clearAlertNotifications(token: string): Promise<{ cleared: number }> {
+  return request("/api/alerts/notifications/clear", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function checkAlerts(
+  token: string
+): Promise<{ triggered: number; notifications: AlertNotification[] }> {
+  return request("/api/alerts/check", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

@@ -7,6 +7,8 @@ import pandas as pd
 
 from modules.shared.contracts.models import (
     Account,
+    AlertNotification,
+    AlertRule,
     AssistantReply,
     BacktestResult,
     CostModel,
@@ -104,6 +106,8 @@ class AIAssistant(Protocol):
 
     def confirm_action(self, user_id: str, proposed_action: str) -> bool: ...
 
+    def review_journal(self, user_id: str, entries: list) -> str: ...
+
 
 @runtime_checkable
 class AuthService(Protocol):
@@ -117,3 +121,24 @@ class AuthService(Protocol):
 @runtime_checkable
 class NotificationService(Protocol):
     def send(self, user_id: str, channel: str, message: str) -> None: ...
+
+
+@runtime_checkable
+class AlertService(Protocol):
+    def create_rule(
+        self,
+        user_id: str,
+        symbol: str,
+        market: str,
+        metric: str,
+        condition: str,
+        value: float,
+    ) -> AlertRule: ...
+
+    def list_rules(self, user_id: str) -> list[AlertRule]: ...
+
+    def delete_rule(self, user_id: str, rule_id: str) -> bool: ...
+
+    def notifications(self, user_id: str) -> list[AlertNotification]: ...
+
+    def clear_notifications(self, user_id: str) -> int: ...

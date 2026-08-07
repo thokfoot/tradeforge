@@ -95,3 +95,46 @@ class AIAssistantService:
             self._pending.pop(user_id)
             return True
         return False
+
+    def review_journal(self, user_id: str, entries: list) -> str:
+        if not entries:
+            return (
+                "Koi journal entries nahi mili. Pehle apne trades log karo "
+                "(Journal tab se), phir main tumhara review karoonga."
+            )
+        lines = []
+        for e in entries[-30:]:
+            tags = ",".join(e.get("tags") or [])
+            lines.append(
+                "- {sym} {side} pnl={pnl} rating={rating} tags={tags} "
+                "note={note} lesson={lesson}".format(
+                    sym=e.get("symbol") or "?",
+                    side=e.get("side") or "?",
+                    pnl=e.get("pnl", 0),
+                    rating=e.get("rating"),
+                    tags=tags or "-",
+                    note=(e.get("note") or "")[:200],
+                    lesson=(e.get("lesson") or "")[:100],
+                )
+            )
+        body = "\n".join(lines)
+        prompt = (
+            f"{PERSONA}\n\n"
+            "Ab aap ek trade journal reviewer hain. Trader ne apni journal "
+            "entries bheji hain:\n\n"
+            f"{body}\n\n"
+            "Simple Hinglish mein review do:\n"
+            "1) Patterns jo main repeat kar raha hoon (entries se specific evidence do)\n"
+            "2) Kya main acha kar raha hoon (strengths)\n"
+            "3) Risks / galtiyan jinke liye dhyan rakhna hai\n"
+            "4) Agli trade ke liye 2-3 concrete improvements\n\n"
+            "Rules: sirf educational, koi buy/sell recommendation nahi, risk ka "
+            "zaboor zikr karo, aur entries mein jo nahi hai usse invent mat karo."
+        )
+        try:
+            return self._generator.generate(prompt)
+        except Exception as exc:
+            return (
+                "AI journal review temporarily unavailable "
+                f"(provider error: {type(exc).__name__}). Try again later."
+            )

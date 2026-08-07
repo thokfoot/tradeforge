@@ -1,5 +1,6 @@
 from modules.shared.contracts.interfaces import (
     AIAssistant,
+    AlertService,
     Analytics,
     AuthService,
     BacktestEngine,
@@ -10,6 +11,8 @@ from modules.shared.contracts.interfaces import (
 )
 from modules.shared.contracts.models import (
     Account,
+    AlertNotification,
+    AlertRule,
     AssistantReply,
     BacktestResult,
     CostModel,
@@ -37,6 +40,7 @@ from modules.shared.contracts.models import (
 
 __all__ = [
     "AIAssistant",
+    "AlertService",
     "Analytics",
     "AuthService",
     "BacktestEngine",
@@ -45,6 +49,8 @@ __all__ = [
     "PaperTrader",
     "StrategyService",
     "Account",
+    "AlertNotification",
+    "AlertRule",
     "AssistantReply",
     "BacktestResult",
     "CostModel",
