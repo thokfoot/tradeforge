@@ -18,7 +18,7 @@ Format:
 - **Background worker**: `app/main.py` lifespan starts an asyncio loop calling `check_all(provider_for)` every `alert_check_interval_seconds` — only when `settings.alerts_enabled` (`ALERTS_ENABLED=0` default; enable on VPS). TestClient runs don't start it.
 - **Frontend**: new Alerts tab — form (symbol/market/metric/condition/value), Add + Check-now buttons, rules list with delete + active/fired status, notifications list + clear.
 - **Test suite: 161 passing** (was 146; +11 alerts module, +4 alerts API). Live verified: create PRICE-ABOVE-50 AAPL rule → `POST /api/alerts/check` fired on real quote 312.96 (Hinglish message, rule deactivated) → notification listed → delete → clear. BTCUSDT RSI-ABOVE-80 stayed active (not triggered — realistic).
-- Commit: next commit = alerts.
+- Commit: `b77c811` (alerts + docs).
 
 **Next:** Phase 2 — no-code strategy builder, Tauri, real VPS deploy. See NEXT-STEPS.md.
 
