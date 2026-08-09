@@ -68,11 +68,26 @@ def get_ohlcv(
     start: date | None = Query(None),
     end: date | None = Query(None),
 ) -> dict:
+    import os
+    is_local = os.getenv("ENVIRONMENT", "development") != "production"
+    
     print(f"[market] Fetching candles for {symbol} market={market} interval={interval}")
     if start is None:
         start = date.today() - default_range(interval)
     if end is None:
         end = date.today()
+    
+    # For local testing, return mock data immediately (fast)
+    if is_local:
+        print(f"[market] Local mode: returning mock data for {symbol}")
+        mock_bars = generate_mock_bars(symbol, start, end)
+        return {
+            "symbol": symbol,
+            "market": market,
+            "interval": interval,
+            "bars": mock_bars,
+        }
+    
     try:
         df = deps.provider_for(market).fetch_ohlcv(
             symbol, interval, pd.Timestamp(start), pd.Timestamp(end)
