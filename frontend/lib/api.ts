@@ -14,12 +14,20 @@ export const DEFAULT_BASE_URL = BACKEND_URL;
 export const API_URL = BACKEND_URL;
 
 export function wakeBackend(): Promise<boolean> {
-  return fetch(`${WAKE_URL}/health`, {
+  const url = `${WAKE_URL}/health`;
+  console.log("[wake] trying", url);
+  return fetch(url, {
     method: "GET",
     signal: AbortSignal.timeout(70000),
   })
-    .then((r) => r.ok)
-    .catch(() => false);
+    .then((r) => {
+      console.log("[wake] response:", r.status);
+      return r.ok;
+    })
+    .catch((e) => {
+      console.error("[wake] failed:", e);
+      return false;
+    });
 }
 
 async function fetchWithRetry<T>(url: string, init?: RequestInit, retries = 2): Promise<T> {
@@ -28,13 +36,18 @@ async function fetchWithRetry<T>(url: string, init?: RequestInit, retries = 2): 
 
   try {
     const resp = await fetch(url, { ...init, signal: controller.signal });
-    if (!resp.ok) throw new Error(`${resp.status}`);
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error("[api] fetch failed:", resp.status, url, text);
+      throw new Error(`${resp.status}: ${text}`);
+    }
     return (await resp.json()) as T;
   } catch (e) {
     if (retries > 0) {
       await new Promise((r) => setTimeout(r, 1000));
       return fetchWithRetry<T>(url, init, retries - 1);
     }
+    console.error("[api] fetch error:", e, url);
     throw e;
   } finally {
     clearTimeout(timeoutId);
