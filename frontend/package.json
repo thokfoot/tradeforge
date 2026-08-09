@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "if exist .next rmdir /s /q .next && next build",
     "start": "node start-production.cjs",
     "build:export": "cross-env NEXT_EXPORT=1 next build",
     "tauri": "tauri"

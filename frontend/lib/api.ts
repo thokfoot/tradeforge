@@ -7,12 +7,11 @@ export const MARKET_LABELS: Record<Market, string> = {
   CRYPTO: "Crypto / 24x7",
 };
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://tradeforge-api-np0c.onrender.com";
-const API_URL = BACKEND_URL;
+const BACKEND_URL = "https://tradeforge-api-np0c.onrender.com";
 const WAKE_URL = BACKEND_URL.replace(/^http/, "https").replace(/\/api.*$/, "");
 
 export const DEFAULT_BASE_URL = BACKEND_URL;
-export { API_URL };
+export const API_URL = BACKEND_URL;
 
 export function wakeBackend(): Promise<boolean> {
   return fetch(`${WAKE_URL}/health`, {
