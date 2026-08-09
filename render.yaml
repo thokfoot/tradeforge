@@ -10,7 +10,7 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.0"
       - key: CORS_ALLOW_ORIGINS
-        value: "https://tradeforge-lac-eta.vercel.app,https://tradeforge-g4h9etimu-thokfoots-projects.vercel.app"
+        value: "https://tradeforge-lac-eta.vercel.app,https://tradeforge-g4h9etimu-thokfoots-projects.vercel.app,*"
       - key: ENVIRONMENT
         value: "production"
       - key: ALERTS_ENABLED

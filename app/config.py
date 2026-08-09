@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     alerts_enabled: bool = False
     alert_check_interval_seconds: int = 60
     db_backend: str = "json"
-    cors_allow_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    cors_allow_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://tradeforge-lac-eta.vercel.app,https://tradeforge-g4h9etimu-thokfoots-projects.vercel.app,*"
 
 
 settings = Settings()
