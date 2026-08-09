@@ -128,3 +128,146 @@ def test_replay_trades_respects_balance(tmp_path):
             "u1",
             [("AAPL", "BUY", 2000, 100.0)],
         )
+
+
+def test_stop_buy_triggered_fills_at_market(service):
+    order = service.place_order("u1", "AAPL", "BUY", 10, "STOP", price=95.0)
+    assert order.status == "FILLED"
+    assert order.filled_price == 100.0
+
+
+def test_stop_buy_not_triggered_stays_open(service):
+    order = service.place_order("u1", "AAPL", "BUY", 10, "STOP", price=105.0)
+    assert order.status == "OPEN"
+
+
+def test_sl_market_triggered_fills(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "MARKET")
+    order = service.place_order("u1", "AAPL", "SELL", 10, "SL-M", price=105.0)
+    assert order.status == "FILLED"
+    assert len(service.positions("u1")) == 0
+
+
+def test_stop_limit_triggered_marketable_fills_at_market(service):
+    order = service.place_order(
+        "u1", "AAPL", "BUY", 10, "STOP_LIMIT", stop_price=95.0, price=102.0
+    )
+    assert order.status == "FILLED"
+    assert order.filled_price == 100.0
+
+
+def test_stop_limit_triggered_non_marketable_fills_at_limit(service):
+    order = service.place_order(
+        "u1", "AAPL", "BUY", 10, "STOP_LIMIT", stop_price=95.0, price=99.0
+    )
+    assert order.status == "FILLED"
+    assert order.filled_price == 99.0
+
+
+def test_stop_limit_not_triggered_stays_open(service):
+    order = service.place_order(
+        "u1", "AAPL", "BUY", 10, "STOP_LIMIT", stop_price=105.0, price=110.0
+    )
+    assert order.status == "OPEN"
+
+
+def test_bracket_market_attaches_sl_tp(service):
+    order = service.place_order(
+        "u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0
+    )
+    assert order.status == "FILLED"
+    pos = service.positions("u1")[0]
+    assert pos.sl == 95.0
+    assert pos.tp == 110.0
+
+
+def test_bracket_limit_entry_not_marketable_stays_open(service):
+    order = service.place_order(
+        "u1", "AAPL", "BUY", 10, "BRACKET", price=95.0, sl=90.0, tp=110.0
+    )
+    assert order.status == "OPEN"
+    assert service.positions("u1") == []
+
+
+def test_check_exits_hits_stop_loss(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    exits = service.check_exits("u1", {"AAPL": 94.0})
+    assert len(exits) == 1
+    assert exits[0].side == "SELL"
+    assert exits[0].status == "FILLED"
+    assert service.positions("u1") == []
+
+
+def test_check_exits_hits_take_profit(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    exits = service.check_exits("u1", {"AAPL": 111.0})
+    assert len(exits) == 1
+    assert service.positions("u1") == []
+
+
+def test_check_exits_ignores_untouched_levels(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    exits = service.check_exits("u1", {"AAPL": 100.0})
+    assert exits == []
+    assert len(service.positions("u1")) == 1
+
+
+def test_check_exits_ignores_position_without_sl_tp(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "MARKET")
+    assert service.check_exits("u1", {"AAPL": 50.0}) == []
+    assert len(service.positions("u1")) == 1
+
+
+def test_sl_tp_persist_across_reload(tmp_path):
+    store = AccountStore(tmp_path / "accounts")
+    svc = PaperTraderService(store=store, pricer=lambda s: 100.0)
+    svc.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    reloaded = PaperTraderService(
+        store=AccountStore(tmp_path / "accounts"), pricer=lambda s: 100.0
+    )
+    pos = reloaded.positions("u1")[0]
+    assert pos.sl == 95.0
+    assert pos.tp == 110.0
+
+
+def test_set_levels_updates_position(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    pos = service.set_levels("u1", "AAPL", sl=90.0, tp=115.0)
+    assert pos is not None
+    assert pos.sl == 90.0
+    assert pos.tp == 115.0
+    assert service.positions("u1")[0].sl == 90.0
+    assert service.positions("u1")[0].tp == 115.0
+    assert service.positions("u1")[0].unrealized_pnl == 0.0
+
+
+def test_set_levels_clears_both(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    pos = service.set_levels("u1", "AAPL", sl=None, tp=None)
+    assert pos is not None
+    assert pos.sl is None and pos.tp is None
+
+
+def test_set_levels_no_position_returns_none(service):
+    assert service.set_levels("u1", "AAPL", sl=90.0, tp=110.0) is None
+
+
+def test_set_levels_persists_across_reload(tmp_path):
+    store = AccountStore(tmp_path / "accounts")
+    svc = PaperTraderService(store=store, pricer=lambda s: 100.0)
+    svc.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    svc.set_levels("u1", "AAPL", sl=88.0, tp=118.0)
+    reloaded = PaperTraderService(
+        store=AccountStore(tmp_path / "accounts"), pricer=lambda s: 100.0
+    )
+    pos = reloaded.positions("u1")[0]
+    assert pos.sl == 88.0
+    assert pos.tp == 118.0
+
+
+def test_updated_levels_trigger_exits(service):
+    service.place_order("u1", "AAPL", "BUY", 10, "BRACKET", sl=95.0, tp=110.0)
+    service.set_levels("u1", "AAPL", sl=99.0, tp=None)
+    exits = service.check_exits("u1", {"AAPL": 98.0})
+    assert len(exits) == 1
+    assert service.positions("u1") == []

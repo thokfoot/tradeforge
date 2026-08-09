@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from modules.shared.safety import safe_id
+
 
 class JournalStore:
     def __init__(self, path: Path):
         self._path = Path(path)
 
     def _file(self, user_id: str) -> Path:
-        return self._path / f"{user_id}.json"
+        return self._path / f"{safe_id(user_id)}.json"
 
     def load(self, user_id: str) -> list[dict]:
         file = self._file(user_id)

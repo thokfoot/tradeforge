@@ -20,6 +20,19 @@ def pro_token(monkeypatch, tmp_path):
     return service.login("pro@test.com", "password123").token
 
 
+def pro_account(monkeypatch, tmp_path):
+    from app.api import deps
+    from modules.auth_billing import AuthService, UserStore
+
+    service = AuthService(UserStore(tmp_path / "auth"))
+    monkeypatch.setattr(deps, "_auth_service", service)
+    service.register("pro@test.com", "password123")
+    user_id = service._store.find_by_email("pro@test.com")["id"]
+    service.create_subscription(user_id, "pro")
+    token = service.login("pro@test.com", "password123").token
+    return token, user_id
+
+
 PRO_HEADERS = {"Authorization": "Bearer PRO_TOKEN"}
 
 
@@ -148,47 +161,148 @@ def test_backtest_invalid_interval(fake_provider, monkeypatch):
     assert resp.status_code == 422
 
 
-def test_paper_order_buy_fills(client, monkeypatch):
+def test_paper_order_buy_fills(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.paper_trading.store import AccountStore
 
+    token = pro_token(monkeypatch, tmp_path)
     monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
     resp = client.post(
         "/api/paper/order",
-        json={"user_id": "u1", "market": "IN", "symbol": "TEST", "side": "BUY", "qty": 10},
+        json={"market": "IN", "symbol": "TEST", "side": "BUY", "qty": 10},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "FILLED"
-    acc = client.get("/api/paper/account", params={"user_id": "u1"}).json()
+    acc = client.get(
+        "/api/paper/account",
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
     assert acc["balance"] == 100000.0 - 10 * 102.5
     assert acc["equity"] == pytest.approx(100000.0)
 
 
-def test_paper_order_sell_without_position_rejected(client, monkeypatch):
+def test_paper_order_sell_without_position_rejected(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.paper_trading.store import AccountStore
 
+    token = pro_token(monkeypatch, tmp_path)
     monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
     resp = client.post(
         "/api/paper/order",
-        json={"user_id": "u1", "market": "IN", "symbol": "TEST", "side": "SELL", "qty": 5},
+        json={"market": "IN", "symbol": "TEST", "side": "SELL", "qty": 5},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "REJECTED"
 
 
-def test_paper_reset(client, monkeypatch):
+def test_paper_reset(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.paper_trading.store import AccountStore
+
+    token = pro_token(monkeypatch, tmp_path)
+    monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
+    client.post(
+        "/api/paper/order",
+        json={"market": "IN", "symbol": "TEST", "side": "BUY", "qty": 10},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp = client.post(
+        "/api/paper/reset",
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert resp["balance"] == 100000.0
+    assert resp["equity"] == 100000.0
+
+
+def test_paper_reset_with_amount(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.paper_trading.store import AccountStore
+
+    token = pro_token(monkeypatch, tmp_path)
+    monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
+    client.post(
+        "/api/paper/order",
+        json={"market": "IN", "symbol": "TEST", "side": "BUY", "qty": 10},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp = client.post(
+        "/api/paper/reset?amount=25000",
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert resp["balance"] == 25000.0
+
+
+def test_paper_position_levels(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.paper_trading.store import AccountStore
+
+    token = pro_token(monkeypatch, tmp_path)
+    monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
+    client.post(
+        "/api/paper/order",
+        json={
+            "market": "IN",
+            "symbol": "TEST",
+            "side": "BUY",
+            "qty": 10,
+            "order_type": "BRACKET",
+            "sl": 95.0,
+            "tp": 110.0,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp = client.post(
+        "/api/paper/position/levels",
+        json={"market": "IN", "symbol": "TEST", "sl": 90.0, "tp": 115.0},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sl"] == 90.0
+    assert body["tp"] == 115.0
+    positions = client.get(
+        "/api/paper/positions",
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert positions[0]["sl"] == 90.0
+
+
+def test_paper_position_levels_no_position_404(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.paper_trading.store import AccountStore
+
+    token = pro_token(monkeypatch, tmp_path)
+    monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
+    resp = client.post(
+        "/api/paper/position/levels",
+        json={"market": "IN", "symbol": "TEST", "sl": 90.0, "tp": 115.0},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 404
+    assert client.post(
+        "/api/paper/position/levels",
+        json={"market": "IN", "symbol": "TEST", "sl": 90.0},
+    ).status_code == 401
+
+
+def test_paper_endpoints_unauth_401(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.paper_trading.store import AccountStore
 
     monkeypatch.setattr(deps, "_paper_store", AccountStore(None))
-    client.post(
-        "/api/paper/order",
-        json={"user_id": "u1", "market": "IN", "symbol": "TEST", "side": "BUY", "qty": 10},
+    assert client.get("/api/paper/account").status_code == 401
+    assert client.get("/api/paper/positions").status_code == 401
+    assert client.get("/api/paper/history").status_code == 401
+    assert client.post("/api/paper/reset").status_code == 401
+    assert (
+        client.post(
+            "/api/paper/order",
+            json={"market": "IN", "symbol": "TEST", "side": "BUY", "qty": 10},
+        ).status_code
+        == 401
     )
-    resp = client.post("/api/paper/reset", params={"user_id": "u1"}).json()
-    assert resp["balance"] == 100000.0
-    assert resp["equity"] == 100000.0
 
 
 def test_strategy_save_and_versions(client, tmp_path, monkeypatch):
@@ -266,48 +380,19 @@ def test_strategy_save_invalid_returns_422(client, tmp_path, monkeypatch):
     assert resp.status_code == 422
 
 
-def test_assistant_chat_requires_pro(client, tmp_path, monkeypatch):
-    from app.api import deps
-    from modules.ai_assistant import AIAssistantService
-
-    class FakeGen:
-        def generate(self, prompt):
-            return "RSI momentum ka indicator hai..."
-
-    token = pro_token(monkeypatch, tmp_path)
-    monkeypatch.setattr(deps, "_assistant_service", AIAssistantService(FakeGen()))
-    resp = client.post(
-        "/api/assistant/chat",
-        json={"user_id": "u1", "message": "RSI kya hai?"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert resp.status_code == 200
-    assert "RSI" in resp.json()["text"]
-
-
-def test_assistant_chat_unauth_401(client, monkeypatch):
-    from app.api import deps
-    from modules.ai_assistant import AIAssistantService
-
-    monkeypatch.setattr(deps, "_assistant_service", AIAssistantService(type("G", (), {"generate": lambda self, p: "x"})()))
-    resp = client.post(
-        "/api/assistant/chat", json={"user_id": "u1", "message": "hi"}
-    )
-    assert resp.status_code == 401
-
-
 def test_journal_review_pro(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.ai_assistant import AIAssistantService
     from modules.trading_journal import JournalService, JournalStore
 
+    token, user_id = pro_account(monkeypatch, tmp_path)
     monkeypatch.setattr(
         deps,
         "_journal_service",
         JournalService(JournalStore(tmp_path / "journal")),
     )
     deps._journal_service.add_entry(
-        user_id="demo",
+        user_id=user_id,
         trade_id="t1",
         note="bought breakout, held well",
         symbol="AAPL",
@@ -319,10 +404,8 @@ def test_journal_review_pro(client, tmp_path, monkeypatch):
         "_assistant_service",
         AIAssistantService(type("G", (), {"generate": lambda self, p: "Good discipline: AAPL hold."})()),
     )
-    token = pro_token(monkeypatch, tmp_path)
     resp = client.post(
         "/api/journal/review",
-        json={"user_id": "demo"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
@@ -346,7 +429,7 @@ def test_journal_review_unauth_401(client, tmp_path, monkeypatch):
         "_assistant_service",
         AIAssistantService(type("G", (), {"generate": lambda self, p: "x"})()),
     )
-    resp = client.post("/api/journal/review", json={"user_id": "demo"})
+    resp = client.post("/api/journal/review")
     assert resp.status_code == 401
 
 
@@ -429,30 +512,89 @@ def test_alerts_unauth_401(client):
     assert resp.status_code == 401
 
 
-def test_assistant_confirm(client, tmp_path, monkeypatch):
+def _builder_spec():
+    return {
+        "entry": {
+            "op": "AND",
+            "conditions": [
+                {"indicator": "rsi", "period": 14, "op": "below", "value": 30},
+            ],
+        },
+        "exit": {
+            "op": "OR",
+            "conditions": [
+                {"indicator": "rsi", "period": 14, "op": "above", "value": 70},
+            ],
+        },
+    }
+
+
+def test_builder_generate_pro(client, tmp_path, monkeypatch):
     from app.api import deps
-    from modules.ai_assistant import AIAssistantService
+    from modules.strategy_engine import StrategyService, StrategyStore
 
-    class FakeGen:
-        def generate(self, prompt):
-            return "```python\nsignals = data['close'] * 0\n```"
-
+    monkeypatch.setattr(
+        deps, "_strategy_service", StrategyService(StrategyStore(tmp_path / "strategies"))
+    )
     token = pro_token(monkeypatch, tmp_path)
-    service = AIAssistantService(FakeGen())
-    monkeypatch.setattr(deps, "_assistant_service", service)
-    client.post(
-        "/api/assistant/chat",
-        json={"user_id": "u1", "message": "make strategy"},
+    resp = client.post(
+        "/api/builder/generate",
+        json=_builder_spec(),
         headers={"Authorization": f"Bearer {token}"},
     )
-    ok = client.post(
-        "/api/assistant/confirm", json={"user_id": "u1", "action": "run backtest with generated strategy"}
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is True
+    assert "signals = pd.Series(out, index=data.index)" in body["code"]
+    assert body["errors"] == []
+
+
+def test_builder_invalid_spec_422(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.strategy_engine import StrategyService, StrategyStore
+
+    monkeypatch.setattr(
+        deps, "_strategy_service", StrategyService(StrategyStore(tmp_path / "strategies"))
     )
-    assert ok.status_code == 200
-    bad = client.post(
-        "/api/assistant/confirm", json={"user_id": "u1", "action": "nope"}
+    token = pro_token(monkeypatch, tmp_path)
+    spec = {
+        "entry": {
+            "op": "AND",
+            "conditions": [{"indicator": "macd", "op": "above", "value": 5}],
+        }
+    }
+    resp = client.post(
+        "/api/builder/generate",
+        json=spec,
+        headers={"Authorization": f"Bearer {token}"},
     )
-    assert bad.status_code == 409
+    assert resp.status_code == 422
+
+
+def test_builder_free_forbidden_403(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.auth_billing import AuthService, UserStore
+    from modules.strategy_engine import StrategyService, StrategyStore
+
+    monkeypatch.setattr(
+        deps, "_strategy_service", StrategyService(StrategyStore(tmp_path / "strategies"))
+    )
+    service = AuthService(UserStore(tmp_path / "auth"))
+    monkeypatch.setattr(deps, "_auth_service", service)
+    service.register("free@test.com", "password123")
+    token = service.login("free@test.com", "password123").token
+    resp = client.post(
+        "/api/builder/generate",
+        json=_builder_spec(),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+def test_builder_unauth_401(client, tmp_path, monkeypatch):
+    resp = client.post("/api/builder/generate", json=_builder_spec())
+    assert resp.status_code == 401
+
 
 def test_auth_register_login_me(client, tmp_path, monkeypatch):
     from app.api import deps
@@ -498,19 +640,59 @@ def test_journal_add_and_list(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.trading_journal import JournalService, JournalStore
 
+    token = pro_token(monkeypatch, tmp_path)
     monkeypatch.setattr(deps, "_journal_service", JournalService(JournalStore(tmp_path / "journal")))
     resp = client.post(
         "/api/journal/entry",
-        json={"user_id": "demo", "trade_id": "t1", "note": "good setup", "symbol": "TEST", "pnl": 150.0, "rating": 4},
+        json={"trade_id": "t1", "note": "good setup", "symbol": "TEST", "pnl": 150.0, "rating": 4},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["note"] == "good setup"
-    entries = client.get("/api/journal", params={"user_id": "demo"}).json()
+    entries = client.get("/api/journal", headers={"Authorization": f"Bearer {token}"}).json()
     assert len(entries) == 1
-    dele = client.delete(f"/api/journal/{body['entry_id']}", params={"user_id": "demo"})
+    dele = client.delete(
+        f"/api/journal/{body['entry_id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert dele.status_code == 200
-    assert client.get("/api/journal", params={"user_id": "demo"}).json() == []
+    assert client.get("/api/journal", headers={"Authorization": f"Bearer {token}"}).json() == []
+
+
+def test_journal_isolated_per_user(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.auth_billing import AuthService, UserStore
+    from modules.trading_journal import JournalService, JournalStore
+
+    service = AuthService(UserStore(tmp_path / "auth"))
+    monkeypatch.setattr(deps, "_auth_service", service)
+    monkeypatch.setattr(deps, "_journal_service", JournalService(JournalStore(tmp_path / "journal")))
+
+    service.register("a@test.com", "password123")
+    service.register("b@test.com", "password123")
+    token_a = service.login("a@test.com", "password123").token
+    token_b = service.login("b@test.com", "password123").token
+
+    resp = client.post(
+        "/api/journal/entry",
+        json={"trade_id": "t1", "note": "secret note"},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert resp.status_code == 200
+
+    assert client.get("/api/journal", headers={"Authorization": f"Bearer {token_b}"}).json() == []
+    assert len(client.get("/api/journal", headers={"Authorization": f"Bearer {token_a}"}).json()) == 1
+
+
+def test_journal_unauth_401(client, tmp_path, monkeypatch):
+    from app.api import deps
+    from modules.trading_journal import JournalService, JournalStore
+
+    monkeypatch.setattr(deps, "_journal_service", JournalService(JournalStore(tmp_path / "journal")))
+    assert client.get("/api/journal").status_code == 401
+    assert client.post("/api/journal/entry", json={"trade_id": "t1", "note": "x"}).status_code == 401
+    assert client.delete("/api/journal/abc").status_code == 401
 
 
 def test_screener_scan(client, fake_provider, tmp_path, monkeypatch):
@@ -572,13 +754,13 @@ def test_paper_replay(client, tmp_path, monkeypatch):
     from app.api import deps
     from modules.paper_trading import AccountStore
 
+    token = pro_token(monkeypatch, tmp_path)
     monkeypatch.setattr(
         deps, "paper_store", lambda: AccountStore(Path(tmp_path) / "accounts")
     )
     resp = client.post(
         "/api/paper/replay",
         json={
-            "user_id": "demo",
             "market": "IN",
             "symbol": "TEST",
             "interval": "1d",
@@ -589,8 +771,137 @@ def test_paper_replay(client, tmp_path, monkeypatch):
             ),
             "initial_capital": 100000.0,
         },
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["symbol"] == "TEST"
     assert body["round_trips"] >= 0
+
+
+def _agent_deps(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from app.api import deps
+    from modules.ai_agent import AgentBacktestStore, AgentService
+
+    store = AgentBacktestStore(Path(tmp_path) / "agent")
+    service = AgentService(store)
+    monkeypatch.setattr(deps, "_agent_service", service)
+    return service
+
+
+def test_agent_parse_requires_auth(client):
+    resp = client.post("/api/agent/parse", json={"text": "RELIANCE RSI 30 neeche buy"})
+    assert resp.status_code == 401
+
+
+def test_agent_parse_hindi(client, tmp_path, monkeypatch):
+    _agent_deps(monkeypatch, tmp_path)
+    token = pro_token(monkeypatch, tmp_path)
+    resp = client.post(
+        "/api/agent/parse",
+        json={"text": "RELIANCE RSI 30 se neeche aaye toh buy kar le, SL 1%, TP 2%"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    dsl = body["dsl"]
+    assert dsl["intent"] == "run_backtest"
+    assert dsl["symbol"] == "RELIANCE"
+    assert dsl["entry"]["indicator"] == "RSI"
+    assert dsl["sl"] == 1.0
+    assert dsl["tp"] == 2.0
+    assert "RELIANCE" in body["plan_text"]
+
+
+def test_agent_run_returns_backtest(client, tmp_path, monkeypatch):
+    _agent_deps(monkeypatch, tmp_path)
+    token = pro_token(monkeypatch, tmp_path)
+    dsl = {
+        "intent": "run_backtest",
+        "symbol": "TEST",
+        "market": "IN",
+        "interval": "1d",
+        "entry": {"indicator": "RSI", "op": "<", "value": 30},
+        "sl": 1.0,
+        "tp": 2.0,
+    }
+    resp = client.post(
+        "/api/agent/run",
+        json={"dsl": dsl},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["backtest_id"]
+    assert isinstance(body["metrics"], dict)
+    assert body["metrics"]["total_trades"] >= 0
+    assert "TEST" in body["summary"]
+
+
+def test_agent_run_invalid_dsl_422(client, tmp_path, monkeypatch):
+    _agent_deps(monkeypatch, tmp_path)
+    token = pro_token(monkeypatch, tmp_path)
+    resp = client.post(
+        "/api/agent/run",
+        json={"dsl": {"intent": "run_backtest", "symbol": "TEST", "entry": {}}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_agent_review_and_suggest(client, tmp_path, monkeypatch, fake_provider):
+    service = _agent_deps(monkeypatch, tmp_path)
+    token, user_id = pro_account(monkeypatch, tmp_path)
+    record = service.run(
+        user_id=user_id,
+        dsl={
+            "intent": "run_backtest",
+            "symbol": "TEST",
+            "market": "IN",
+            "interval": "1d",
+            "entry": {"indicator": "RSI", "op": "<", "value": 30},
+        },
+        fetch_ohlcv=fake_provider.fetch_ohlcv,
+    )
+    resp = client.post(
+        "/api/agent/review",
+        json={"backtest_id": record["backtest_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body["review"], str) and body["review"]
+    assert isinstance(body["chips"], list)
+
+    sugg = client.post(
+        "/api/agent/suggest",
+        json={"metrics": {"win_rate_pct": 20, "max_drawdown_pct": -30}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert sugg.status_code == 200
+    assert isinstance(sugg.json()["chips"], list)
+
+
+def test_agent_history(client, tmp_path, monkeypatch, fake_provider):
+    service = _agent_deps(monkeypatch, tmp_path)
+    token, user_id = pro_account(monkeypatch, tmp_path)
+    service.run(
+        user_id=user_id,
+        dsl={
+            "intent": "run_backtest",
+            "symbol": "TEST",
+            "market": "IN",
+            "entry": {"indicator": "RSI", "op": "<", "value": 30},
+        },
+        fetch_ohlcv=fake_provider.fetch_ohlcv,
+    )
+    resp = client.get(
+        "/api/agent/history?limit=5",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    records = resp.json()["records"]
+    assert len(records) >= 1
+    assert records[0]["symbol"] == "TEST"

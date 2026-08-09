@@ -16,6 +16,7 @@ from modules.shared.contracts import (
     Metrics,
     Strategy,
 )
+from modules.strategy_engine.sandbox import run_code
 
 
 class EventDrivenEngine:
@@ -66,14 +67,12 @@ class EventDrivenEngine:
         return digest.hexdigest()
 
     def _signals(self, strategy: Strategy, data: DataBundle) -> pd.Series:
-        namespace: dict = {
-            "np": np,
-            "pd": pd,
-            "data": data.df,
-            "params": strategy.params,
-        }
-        exec(strategy.code, namespace)
-        signals = namespace.get("signals")
+        ns = run_code(
+            strategy.code,
+            {"np": np, "pd": pd, "data": data.df, "params": strategy.params},
+            timeout=20.0,
+        )
+        signals = ns.get("signals")
         if not isinstance(signals, pd.Series):
             raise ValueError("strategy code must set 'signals' as a pandas Series")
         signals = signals.reindex(data.df.index).fillna(0).clip(-1, 1).astype(int)

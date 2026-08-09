@@ -28,7 +28,7 @@ def _probe_data() -> pd.DataFrame:
 
 
 class StrategyService:
-    def __init__(self, store: StrategyStore, timeout: float = 2.0):
+    def __init__(self, store: StrategyStore, timeout: float = 8.0):
         self._store = store
         self._timeout = timeout
 

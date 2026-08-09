@@ -21,6 +21,7 @@ services:
       - .env
     environment:
       - DATA_DIR=/data
+      - ENVIRONMENT=${ENVIRONMENT:-development}
     volumes:
       - data:/data
     depends_on:
@@ -28,7 +29,10 @@ services:
       - redis
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
     depends_on:
       - api
 
@@ -36,8 +40,10 @@ services:
     image: nginx:1.27-alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/${NGINX_CONF:-nginx.conf}:/etc/nginx/conf.d/default.conf:ro
+      - certbot_data:/etc/letsencrypt:ro
     depends_on:
       - api
       - frontend
@@ -45,3 +51,4 @@ services:
 volumes:
   pgdata:
   data:
+  certbot_data:

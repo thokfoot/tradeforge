@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from modules.backtest_engine.simulator import order_charges, simulate
 from modules.shared.contracts import CostModel, DataBundle, StrategyConfig, SymbolInfo
@@ -43,17 +44,25 @@ def test_golden_no_cost_scenario():
     signals = pd.Series([0, 1, 1, 0, 0], index=bundle.df.index)
     equity, trades = simulate(bundle, signals, CostModel(), _cfg())
     assert equity.tolist() == [1000.0, 1000.0, 1000.0, 1009.0, 1018.0]
-    assert len(trades) == 1
-    assert trades[0].pnl == 18.0
-    assert trades[0].side == "SELL"
-    assert trades[0].symbol == "TEST"
+    assert len(trades) == 2
+    assert trades[0].side == "BUY"
+    assert trades[0].pnl == 0.0
+    assert trades[0].entry_timestamp is None
+    assert trades[1].side == "SELL"
+    assert trades[1].pnl == 18.0
+    assert trades[1].symbol == "TEST"
 
 
-def test_execution_uses_next_bar_open_not_signal_bar():
+def test_open_position_closed_at_end_of_data():
     bundle = _bundle()
     signals = pd.Series([1, 1, 1, 1, 1], index=bundle.df.index)
     equity, trades = simulate(bundle, signals, CostModel(), _cfg())
-    assert len(trades) == 0
+    assert len(trades) == 2
+    assert trades[0].side == "BUY"
+    assert trades[1].side == "SELL"
+    assert trades[1].pnl == 27.0
+    assert trades[1].entry_timestamp == bundle.df.index[1]
+    assert trades[1].timestamp == bundle.df.index[4]
     assert equity.iloc[0] == 1000.0, "no signal before first bar, must stay flat"
     assert equity.iloc[1] == 1000.0, "entered at open[1]=101, close[1]=101, no pnl yet"
     assert equity.iloc[2] == 1009.0, "9 shares held into close[2]=102"
@@ -79,4 +88,29 @@ def test_slippage_reduces_sell_proceeds():
     signals = pd.Series([0, 1, 1, 0, 0], index=bundle.df.index)
     equity, trades = simulate(bundle, signals, CostModel(slippage_pct=0.0), _cfg())
     equity_slip, trades_slip = simulate(bundle, signals, c, _cfg())
-    assert trades_slip[0].pnl < trades[0].pnl
+    assert trades_slip[1].pnl < trades[1].pnl
+
+
+def test_trade_records_entry_timestamp():
+    bundle = _bundle()
+    signals = pd.Series([0, 1, 1, 0, 0], index=bundle.df.index)
+    equity, trades = simulate(bundle, signals, CostModel(), _cfg())
+    assert len(trades) == 2
+    assert trades[0].side == "BUY"
+    assert trades[0].timestamp == bundle.df.index[2]
+    assert trades[1].side == "SELL"
+    assert trades[1].entry_timestamp == bundle.df.index[2]
+    assert trades[1].timestamp == bundle.df.index[4]
+
+
+def test_metrics_avg_trade_duration_days():
+    from modules.backtest_engine.metrics import compute_metrics
+
+    bundle = _bundle()
+    signals = pd.Series([0, 1, 1, 0, 1], index=bundle.df.index)
+    equity, trades = simulate(bundle, signals, CostModel(), _cfg())
+    assert len(trades) == 2
+    metrics = compute_metrics(equity, trades)
+    assert metrics.avg_trade_duration_days == pytest.approx(2.0)
+    assert metrics.total_trades == 2, "table counts BUY + SELL rows"
+    assert metrics.win_rate_pct == pytest.approx(100.0), "win rate on closed trades only"

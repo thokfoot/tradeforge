@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import timedelta
 
 import pandas as pd
@@ -24,6 +25,21 @@ POPULAR_US = [
     ("SHOP", "stock"), ("SNOW", "stock"), ("COIN", "stock"), ("TSM", "stock"),
     ("BABA", "stock"), ("SPY", "etf"), ("QQQ", "etf"), ("DIA", "etf"),
     ("IWM", "etf"), ("GLD", "etf"), ("SLV", "etf"), ("USO", "etf"), ("TLT", "etf"),
+]
+
+US_INDICES = [
+    ("^GSPC", "S&P 500"),
+    ("^DJI", "Dow Jones Industrial Average"),
+    ("^IXIC", "Nasdaq Composite"),
+    ("^NDX", "Nasdaq 100"),
+    ("^RUT", "Russell 2000"),
+    ("^VIX", "CBOE Volatility Index"),
+    ("^NYA", "NYSE Composite"),
+    ("^OEX", "S&P 100"),
+    ("^MID", "S&P MidCap 400"),
+    ("^SML", "S&P SmallCap 600"),
+    ("^W5000", "Wilshire 5000"),
+    ("^SOX", "PHLX Semiconductor"),
 ]
 
 
@@ -50,6 +66,7 @@ class YFinanceProvider(ParquetBackedProvider):
     market = "US"
     currency = "USD"
     supported_intervals = {"1d", "1h", "1m"}
+    allow_remote_gap_fill = os.getenv("ENVIRONMENT", "development").lower() == "production"
 
     def __init__(self, store: ParquetStore | None = None):
         super().__init__(store=store)
@@ -80,7 +97,7 @@ class YFinanceProvider(ParquetBackedProvider):
         )
 
     def get_symbols(self) -> list[SymbolInfo]:
-        return [
+        stocks = [
             SymbolInfo(
                 symbol=symbol,
                 market="US",
@@ -91,3 +108,15 @@ class YFinanceProvider(ParquetBackedProvider):
             )
             for symbol, kind in POPULAR_US
         ]
+        indices = [
+            SymbolInfo(
+                symbol=symbol,
+                market="US",
+                exchange="INDEX",
+                name=name,
+                currency="USD",
+                instrument_type="index",
+            )
+            for symbol, name in US_INDICES
+        ]
+        return indices + stocks

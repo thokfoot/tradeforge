@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import httpx
 import pandas as pd
@@ -42,6 +43,7 @@ class BinanceProvider(ParquetBackedProvider):
     market = "CRYPTO"
     currency = "USDT"
     supported_intervals = {"1d", "1h", "1m"}
+    allow_remote_gap_fill = os.getenv("ENVIRONMENT", "development").lower() == "production"
 
     def __init__(self, store: ParquetStore | None = None, client: httpx.Client | None = None):
         super().__init__(store=store)
@@ -90,6 +92,20 @@ class BinanceProvider(ParquetBackedProvider):
         )
 
     def get_symbols(self) -> list[SymbolInfo]:
+        local_dir = self.store.root / self.market / "1d" if self.store is not None else None
+        local_paths = sorted(local_dir.glob("*.parquet")) if local_dir is not None and local_dir.exists() else []
+        if local_paths:
+            return [
+                SymbolInfo(
+                    symbol=path.stem,
+                    market="CRYPTO",
+                    exchange="BINANCE",
+                    name=path.stem.removesuffix("USDT"),
+                    currency="USDT",
+                    instrument_type="crypto",
+                )
+                for path in local_paths
+            ]
         resp = self._client.get(f"{BASE_URL}/exchangeInfo")
         resp.raise_for_status()
         data = resp.json()

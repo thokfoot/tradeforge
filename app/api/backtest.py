@@ -117,6 +117,7 @@ def serialize_result(result) -> dict:
                 "fees": round(float(t.fees), 2),
                 "pnl": round(float(t.pnl), 2),
                 "timestamp": t.timestamp.isoformat(),
+                "entry_timestamp": t.entry_timestamp.isoformat() if t.entry_timestamp is not None else None,
             }
             for t in result.trades
         ],
@@ -130,6 +131,7 @@ def serialize_result(result) -> dict:
             "profit_factor": round(pf, 4) if pf is not None else None,
             "total_trades": m.total_trades,
             "avg_trade_return_pct": round(m.avg_trade_return_pct, 4),
+            "avg_trade_duration_days": round(m.avg_trade_duration_days, 4),
             "calmar": round(m.calmar, 4),
         },
     }

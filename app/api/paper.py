@@ -5,7 +5,7 @@ from datetime import date
 from typing import Literal
 
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,7 @@ from modules.shared.contracts import (
     Strategy,
     StrategyConfig,
     SymbolInfo,
+    User,
 )
 
 router = APIRouter(prefix="/api/paper")
@@ -28,53 +29,102 @@ INSTRUMENT_BY_MARKET = {"IN": "stock", "US": "stock", "CRYPTO": "crypto"}
 
 
 class OrderRequest(BaseModel):
-    user_id: str
     market: Literal["IN", "US", "CRYPTO"] = "IN"
     symbol: str
     side: Literal["BUY", "SELL"]
     qty: int = Field(..., gt=0)
-    order_type: Literal["MARKET", "LIMIT"] = "MARKET"
+    order_type: Literal[
+        "MARKET", "LIMIT", "SL", "SL-M", "STOP", "STOP_LIMIT", "BRACKET"
+    ] = "MARKET"
     price: float | None = None
+    stop_price: float | None = None
+    sl: float | None = None
+    tp: float | None = None
     strategy_id: str | None = None
 
 
+class ExitsRequest(BaseModel):
+    market: Literal["IN", "US", "CRYPTO"] = "IN"
+    prices: dict[str, float] = Field(default_factory=dict)
+
+
 @router.post("/order")
-def place_order(req: OrderRequest) -> dict:
+def place_order(
+    req: OrderRequest, user: User = Depends(deps.current_user)
+) -> dict:
     service = deps.paper_service(req.market)
     order = service.place_order(
-        user_id=req.user_id,
+        user_id=user.id,
         symbol=req.symbol,
         side=req.side,
         qty=req.qty,
         order_type=req.order_type,
         price=req.price,
+        stop_price=req.stop_price,
+        sl=req.sl,
+        tp=req.tp,
         strategy_id=req.strategy_id,
     )
     return asdict(order)
 
 
+class LevelsRequest(BaseModel):
+    market: Literal["IN", "US", "CRYPTO"] = "IN"
+    symbol: str
+    sl: float | None = None
+    tp: float | None = None
+
+
+@router.post("/position/levels")
+def set_levels(
+    req: LevelsRequest, user: User = Depends(deps.current_user)
+) -> dict:
+    pos = deps.paper_service(req.market).set_levels(
+        user.id, req.symbol, req.sl, req.tp
+    )
+    if pos is None:
+        raise HTTPException(status_code=404, detail="no open position")
+    return asdict(pos)
+
+
+@router.post("/check-exits")
+def check_exits(
+    req: ExitsRequest, user: User = Depends(deps.current_user)
+) -> dict:
+    orders = deps.paper_service(req.market).check_exits(user.id, req.prices)
+    return {"orders": [asdict(o) for o in orders], "count": len(orders)}
+
+
 @router.get("/account")
-def get_account(user_id: str, market: str = "IN") -> dict:
-    return asdict(deps.paper_service(market).account(user_id))
+def get_account(
+    market: str = "IN", user: User = Depends(deps.current_user)
+) -> dict:
+    return asdict(deps.paper_service(market).account(user.id))
 
 
 @router.get("/positions")
-def get_positions(user_id: str, market: str = "IN") -> list[dict]:
-    return [asdict(p) for p in deps.paper_service(market).positions(user_id)]
+def get_positions(
+    market: str = "IN", user: User = Depends(deps.current_user)
+) -> list[dict]:
+    return [asdict(p) for p in deps.paper_service(market).positions(user.id)]
 
 
 @router.get("/history")
-def get_history(user_id: str) -> list[dict]:
-    return [asdict(t) for t in deps.paper_service().history(user_id)]
+def get_history(user: User = Depends(deps.current_user)) -> list[dict]:
+    return [asdict(t) for t in deps.paper_service().history(user.id)]
 
 
 @router.post("/reset")
-def reset_account(user_id: str, market: str = "IN") -> dict:
-    return asdict(deps.paper_service(market).reset_account(user_id))
+def reset_account(
+    market: str = "IN",
+    amount: float | None = None,
+    user: User = Depends(deps.current_user),
+) -> dict:
+    capital = amount if amount is not None else deps.DEFAULT_CAPITAL
+    return asdict(deps.paper_service(market).reset_account(user.id, capital))
 
 
 class ReplayRequest(BaseModel):
-    user_id: str
     market: Literal["IN", "US", "CRYPTO"]
     symbol: str
     interval: str = "1d"
@@ -88,8 +138,7 @@ class ReplayRequest(BaseModel):
     costs: dict = Field(default_factory=dict)
 
 
-@router.post("/replay")
-def replay(req: ReplayRequest) -> dict:
+def _run_replay(user: User, req: ReplayRequest) -> dict:
     provider = deps.provider_for(req.market)
     try:
         df = provider.fetch_ohlcv(
@@ -118,7 +167,7 @@ def replay(req: ReplayRequest) -> dict:
     strategy = Strategy(
         id="replay",
         version="1.0",
-        author_user_id=req.user_id,
+        author_user_id=user.id,
         code=req.code,
         params=req.params,
         config=StrategyConfig(
@@ -135,22 +184,23 @@ def replay(req: ReplayRequest) -> dict:
     result = EventDrivenEngine().run(strategy, bundle, CostModel(**cost_kwargs))
 
     fills = []
+    round_trips = 0
     for t in result.trades:
-        entry_price = t.price - (t.pnl + t.fees) / t.qty
-        fills.append((result.symbol, "BUY", int(t.qty), entry_price))
-        fills.append((result.symbol, "SELL", int(t.qty), float(t.price)))
+        if t.entry_timestamp is not None:
+            round_trips += 1
+        fills.append((result.symbol, t.side, int(t.qty), float(t.price)))
 
     service = deps.paper_service(req.market)
-    service.reset_account(req.user_id, req.initial_capital)
-    trades = replay_trades(deps.paper_store(), req.user_id, fills)
-    account = service.account(req.user_id)
+    service.reset_account(user.id, req.initial_capital)
+    trades = replay_trades(deps.paper_store(), user.id, fills)
+    account = service.account(user.id)
     return {
-        "user_id": req.user_id,
+        "user_id": user.id,
         "market": req.market,
         "symbol": result.symbol,
         "interval": result.interval,
         "fills": len(fills),
-        "round_trips": len(result.trades),
+        "round_trips": round_trips,
         "replayed_trades": [asdict(t) for t in trades],
         "account": asdict(account),
         "metrics": {
@@ -159,3 +209,28 @@ def replay(req: ReplayRequest) -> dict:
             "win_rate_pct": round(result.metrics.win_rate_pct, 4),
         },
     }
+
+
+@router.post("/replay")
+def replay(
+    req: ReplayRequest, user: User = Depends(deps.current_user)
+) -> dict:
+    return _run_replay(user, req)
+
+
+class PaperTradingStartRequest(ReplayRequest):
+    strategy_id: str = "adhoc"
+
+
+start_router = APIRouter(prefix="/api/paper-trading")
+
+
+@start_router.post("/start")
+def start_paper_trading(
+    req: PaperTradingStartRequest, user: User = Depends(deps.current_user)
+) -> dict:
+    result = _run_replay(user, req)
+    result["status"] = "started"
+    result["strategy_id"] = req.strategy_id
+    result["message"] = "paper trading started"
+    return result

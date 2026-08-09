@@ -14,6 +14,7 @@ class ParquetBackedProvider:
     market = "UNKNOWN"
     currency = ""
     supported_intervals: set[str] = {"1d"}
+    allow_remote_gap_fill = True
 
     def __init__(self, store=None):
         self.store = store
@@ -59,8 +60,16 @@ class ParquetBackedProvider:
         start_d = pd.Timestamp(start).date()
         end_d = pd.Timestamp(end).date()
         parts = self._read_local(symbol, interval, start_d, end_d)
+        if parts and not self.allow_remote_gap_fill:
+            result = pd.concat(parts)
+            return result[~result.index.duplicated(keep="last")].sort_index()
         covered = {ts.date() for df in parts for ts in df.index}
         for gap_start, gap_end in self._uncovered_ranges(start_d, end_d, covered):
+            business_days = pd.bdate_range(gap_start, gap_end)
+            if business_days.empty:
+                continue
+            gap_start = business_days[0].date()
+            gap_end = business_days[-1].date()
             try:
                 df = self._fetch_range(
                     symbol, interval, pd.Timestamp(gap_start), pd.Timestamp(gap_end)

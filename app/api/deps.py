@@ -8,16 +8,30 @@ from fastapi.exceptions import HTTPException
 
 from app.config import settings
 from app.providers import get_provider
+from modules.ai_agent import AgentBacktestStore, AgentService
+from modules.ai_agent.cache import TtlCache
+from modules.ai_agent.providers import CloudflareParser, GeminiProvider, GroqProvider
 from modules.ai_assistant import AIAssistantService
-from modules.ai_assistant.provider import GeminiProvider
+from modules.ai_assistant.provider import GeminiProvider as AssistantGeminiProvider
 from modules.alerts import AlertService, AlertStore
 from modules.auth_billing import AuthService, UserStore
 from modules.market_data.storage.parquet_store import ParquetStore
 from modules.paper_trading import AccountStore, PaperTraderService
+from modules.paper_trading.service import DEFAULT_CAPITAL
 from modules.screener import ScanStore, ScreenerService
 from modules.shared.contracts import User
+from modules.shared.database import use_postgres
+from modules.shared.pg_stores import (
+    PgAccountStore,
+    PgAlertStore,
+    PgJournalStore,
+    PgScanStore,
+    PgStrategyStore,
+    PgUserStore,
+)
 from modules.strategy_engine import StrategyService, StrategyStore
 from modules.trading_journal import JournalService, JournalStore
+from modules.watchlists import WatchlistStore
 
 
 def provider_for(market: str):
@@ -28,13 +42,16 @@ def parquet_store() -> ParquetStore:
     return ParquetStore(Path(settings.data_dir))
 
 
-_paper_store: AccountStore | None = None
+_paper_store: AccountStore | PgAccountStore | None = None
 
 
-def paper_store() -> AccountStore:
+def paper_store() -> AccountStore | PgAccountStore:
     global _paper_store
     if _paper_store is None:
-        _paper_store = AccountStore(Path(settings.data_dir) / "accounts")
+        if use_postgres():
+            _paper_store = PgAccountStore()
+        else:
+            _paper_store = AccountStore(Path(settings.data_dir) / "accounts")
     return _paper_store
 
 
@@ -51,9 +68,8 @@ _strategy_service: StrategyService | None = None
 def strategy_service() -> StrategyService:
     global _strategy_service
     if _strategy_service is None:
-        _strategy_service = StrategyService(
-            StrategyStore(Path(settings.data_dir) / "strategies")
-        )
+        store = PgStrategyStore() if use_postgres() else StrategyStore(Path(settings.data_dir) / "strategies")
+        _strategy_service = StrategyService(store)
     return _strategy_service
 
 
@@ -65,7 +81,7 @@ def assistant_service() -> AIAssistantService:
     if _assistant_service is None:
         api_key = settings.gemini_api_key
         if api_key:
-            generator = GeminiProvider(api_key=api_key, model=settings.gemini_model)
+            generator = AssistantGeminiProvider(api_key=api_key, model=settings.gemini_model)
         else:
 
             class _Fallback:
@@ -83,7 +99,8 @@ _auth_service: AuthService | None = None
 def auth_service() -> AuthService:
     global _auth_service
     if _auth_service is None:
-        _auth_service = AuthService(UserStore(Path(settings.data_dir) / "auth"))
+        store = PgUserStore() if use_postgres() else UserStore(Path(settings.data_dir) / "auth")
+        _auth_service = AuthService(store)
     return _auth_service
 
 
@@ -113,9 +130,8 @@ _journal_service: JournalService | None = None
 def journal_service() -> JournalService:
     global _journal_service
     if _journal_service is None:
-        _journal_service = JournalService(
-            JournalStore(Path(settings.data_dir) / "journal")
-        )
+        store = PgJournalStore() if use_postgres() else JournalStore(Path(settings.data_dir) / "journal")
+        _journal_service = JournalService(store)
     return _journal_service
 
 
@@ -143,7 +159,7 @@ _scan_store: ScanStore | None = None
 def scan_store() -> ScanStore:
     global _scan_store
     if _scan_store is None:
-        _scan_store = ScanStore(Path(settings.data_dir) / "screener")
+        _scan_store = PgScanStore() if use_postgres() else ScanStore(Path(settings.data_dir) / "screener")
     return _scan_store
 
 
@@ -153,5 +169,51 @@ _alert_service: AlertService | None = None
 def alert_service() -> AlertService:
     global _alert_service
     if _alert_service is None:
-        _alert_service = AlertService(AlertStore(Path(settings.data_dir) / "alerts"))
+        store = PgAlertStore() if use_postgres() else AlertStore(Path(settings.data_dir) / "alerts")
+        _alert_service = AlertService(store)
     return _alert_service
+
+
+_watchlist_store: WatchlistStore | None = None
+
+
+def watchlist_store() -> WatchlistStore:
+    global _watchlist_store
+    if _watchlist_store is None:
+        _watchlist_store = WatchlistStore(Path(settings.data_dir) / "watchlists")
+    return _watchlist_store
+
+
+_agent_service: AgentService | None = None
+
+
+def _agent_reviewer(summary: str) -> str:
+    """Groq first (free 14k/day), Gemini Flash fallback. Empty when unconfigured."""
+    from modules.ai_agent.prompts import load_prompt
+
+    prompt = load_prompt("review", summary=summary)
+    if settings.groq_api_key:
+        try:
+            return GroqProvider(settings.groq_api_key).generate(prompt)
+        except Exception:
+            pass
+    if settings.gemini_api_key:
+        try:
+            return GeminiProvider(settings.gemini_api_key).generate(prompt)
+        except Exception:
+            pass
+    return ""
+
+
+def agent_service() -> AgentService:
+    global _agent_service
+    if _agent_service is None:
+        store = AgentBacktestStore(Path(settings.data_dir) / "agent")
+        parser = None
+        if settings.cloudflare_ai_url and settings.cloudflare_ai_token:
+            parser = CloudflareParser(settings.cloudflare_ai_url, settings.cloudflare_ai_token)
+        cache = TtlCache(ttl_seconds=24 * 60 * 60, redis_url=settings.redis_url)
+        _agent_service = AgentService(
+            store, parser=parser, reviewer=_agent_reviewer, cache=cache
+        )
+    return _agent_service

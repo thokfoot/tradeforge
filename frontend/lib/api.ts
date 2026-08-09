@@ -1,8 +1,13 @@
 export type Market = "IN" | "US" | "CRYPTO";
 
 export const MARKETS: Market[] = ["IN", "US", "CRYPTO"];
+export const MARKET_LABELS: Record<Market, string> = {
+  IN: "India / NSE",
+  US: "US Markets",
+  CRYPTO: "Crypto / 24x7",
+};
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export interface SymbolInfo {
   symbol: string;
@@ -32,6 +37,7 @@ export interface BacktestMetrics {
   profit_factor: number | null;
   total_trades: number;
   avg_trade_return_pct: number;
+  avg_trade_duration_days: number;
   calmar: number;
 }
 
@@ -53,6 +59,7 @@ export interface BacktestResult {
     fees: number;
     pnl: number;
     timestamp: string;
+    entry_timestamp: string | null;
   }[];
   metrics: BacktestMetrics;
 }
@@ -71,6 +78,7 @@ export interface Order {
   order_type: string;
   qty: number;
   price: number | null;
+  stop_price: number | null;
   sl: number | null;
   tp: number | null;
   status: string;
@@ -85,6 +93,8 @@ export interface Position {
   avg_price: number;
   ltp: number;
   unrealized_pnl: number;
+  sl: number | null;
+  tp: number | null;
 }
 
 export interface Account {
@@ -197,6 +207,7 @@ export interface BacktestPayload {
   initial_capital: number;
   position_sizing: "pct" | "fixed";
   position_size: number;
+  costs?: Record<string, number>;
 }
 
 export function runBacktest(payload: BacktestPayload): Promise<BacktestResult> {
@@ -219,61 +230,152 @@ export function saveStrategy(code: string, token: string, id: string = "adhoc"):
   return request("/api/strategies/save", json("POST", { id, code }, token));
 }
 
-export function assistantChat(message: string, token: string): Promise<{
-  text: string;
-  action_taken: string | null;
-  needs_confirmation: boolean;
-}> {
-  return request("/api/assistant/chat", json("POST", { user_id: "demo", message }, token));
+// ====== AI Agent ======
+
+export interface AgentDsl {
+  intent: "create_strategy" | "run_backtest" | "review";
+  symbol: string;
+  market?: Market;
+  interval?: string;
+  entry?: { indicator: string; op: string; value: number };
+  sl?: number | null;
+  tp?: number | null;
 }
 
-export function assistantConfirm(action: string): Promise<{ confirmed: boolean }> {
-  return request("/api/assistant/confirm", json("POST", { user_id: "demo", action }));
+export interface AgentMetrics {
+  total_return_pct: number;
+  cagr_pct: number;
+  sharpe: number;
+  sortino: number;
+  max_drawdown_pct: number;
+  win_rate_pct: number;
+  profit_factor: number | null;
+  total_trades: number;
+  avg_trade_return_pct: number;
+  avg_trade_duration_days: number;
+  calmar: number;
+  loss_hour?: number | null;
 }
+
+export interface AgentRecord {
+  id: string;
+  plan_text: string;
+  summary: string;
+  symbol: string;
+  created_at: string;
+}
+
+export function agentParse(text: string, token: string): Promise<{ dsl: AgentDsl; plan_text: string | null }> {
+  return request("/api/agent/parse", json("POST", { text }, token));
+}
+
+export function agentRun(
+  dsl: AgentDsl,
+  token: string
+): Promise<{ backtest_id: string; metrics: AgentMetrics; plan_text: string; summary: string; code: string }> {
+  return request("/api/agent/run", json("POST", { dsl }, token));
+}
+
+export function agentReview(
+  backtestId: string,
+  token: string
+): Promise<{ review: string; chips: string[]; cached: boolean }> {
+  return request("/api/agent/review", json("POST", { backtest_id: backtestId }, token));
+}
+
+export function agentSuggest(metrics: AgentMetrics, token: string): Promise<{ chips: string[] }> {
+  return request("/api/agent/suggest", json("POST", { metrics }, token));
+}
+
+export function agentHistory(token: string, limit: number = 10): Promise<{ records: AgentRecord[] }> {
+  return request(`/api/agent/history?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export type OrderType = "MARKET" | "LIMIT" | "SL" | "SL-M" | "STOP" | "STOP_LIMIT" | "BRACKET";
 
 export function placeOrder(
   payload: {
-    user_id: string;
     market: Market;
     symbol: string;
     side: "BUY" | "SELL";
     qty: number;
-    order_type: "MARKET" | "LIMIT";
+    order_type: OrderType;
     price?: number | null;
-  }
+    stop_price?: number | null;
+    sl?: number | null;
+    tp?: number | null;
+  },
+  token: string
 ): Promise<Order> {
-  return request("/api/paper/order", json("POST", payload));
+  return request("/api/paper/order", json("POST", payload, token));
 }
 
-export function getAccount(userId: string, market: Market): Promise<Account> {
-  return request(`/api/paper/account?user_id=${userId}&market=${market}`);
+export function checkExits(
+  market: Market,
+  prices: Record<string, number>,
+  token: string
+): Promise<{ orders: Order[]; count: number }> {
+  return request("/api/paper/check-exits", json("POST", { market, prices }, token));
 }
 
-export function getPositions(userId: string, market: Market): Promise<Position[]> {
-  return request(`/api/paper/positions?user_id=${userId}&market=${market}`);
+export function getAccount(token: string, market: Market): Promise<Account> {
+  return request(`/api/paper/account?market=${market}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export function getHistory(userId: string): Promise<Trade[]> {
-  return request(`/api/paper/history?user_id=${userId}`);
+export function getPositions(token: string, market: Market): Promise<Position[]> {
+  return request(`/api/paper/positions?market=${market}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export function resetAccount(userId: string, market: Market): Promise<Account> {
-  return request(`/api/paper/reset?user_id=${userId}&market=${market}`, { method: "POST" });
+export function getHistory(token: string): Promise<Trade[]> {
+  return request(`/api/paper/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export function replayPaper(payload: {
-  user_id: string;
-  market: Market;
-  symbol: string;
-  interval: string;
-  start: string;
-  end: string;
-  code: string;
-  params?: Record<string, number>;
-  initial_capital?: number;
-  position_sizing?: "pct" | "fixed";
-  position_size?: number;
-}): Promise<{
+export function resetAccount(token: string, market: Market, amount?: number): Promise<Account> {
+  const params = new URLSearchParams({ market });
+  if (amount != null) params.set("amount", String(amount));
+  return request(`/api/paper/reset?${params}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function setLevels(
+  token: string,
+  market: Market,
+  symbol: string,
+  sl: number | null,
+  tp: number | null
+): Promise<Position> {
+  return request(
+    "/api/paper/position/levels",
+    json("POST", { market, symbol, sl, tp }, token)
+  );
+}
+
+export function replayPaper(
+  payload: {
+    market: Market;
+    symbol: string;
+    interval: string;
+    start: string;
+    end: string;
+    code: string;
+    params?: Record<string, number>;
+    initial_capital?: number;
+    position_sizing?: "pct" | "fixed";
+    position_size?: number;
+    costs?: Record<string, number>;
+  },
+  token: string
+): Promise<{
   symbol: string;
   interval: string;
   fills: number;
@@ -281,7 +383,35 @@ export function replayPaper(payload: {
   account: Account;
   metrics: { total_return_pct: number; total_trades: number; win_rate_pct: number };
 }> {
-  return request("/api/paper/replay", json("POST", payload));
+  return request("/api/paper/replay", json("POST", payload, token));
+}
+
+export function startPaperTrading(
+  payload: {
+    market: Market;
+    symbol: string;
+    interval: string;
+    start: string;
+    end: string;
+    code: string;
+    params?: Record<string, number>;
+    initial_capital?: number;
+    position_sizing?: "pct" | "fixed";
+    position_size?: number;
+    costs?: Record<string, number>;
+    strategy_id?: string;
+  },
+  token: string
+): Promise<{
+  status: string;
+  strategy_id: string;
+  message: string;
+  fills: number;
+  round_trips: number;
+  account: Account;
+  metrics: { total_return_pct: number; total_trades: number; win_rate_pct: number };
+}> {
+  return request("/api/paper-trading/start", json("POST", payload, token));
 }
 
 export function screenerScan(
@@ -323,31 +453,38 @@ export function runSavedScan(
   });
 }
 
-export function addJournalEntry(payload: {
-  user_id: string;
-  trade_id: string;
-  note: string;
-  symbol?: string;
-  side?: string;
-  qty?: number;
-  pnl?: number;
-  tags?: string[];
-  rating?: number | null;
-  lesson?: string;
-}): Promise<JournalEntry> {
-  return request("/api/journal/entry", json("POST", payload));
+export function addJournalEntry(
+  payload: {
+    trade_id: string;
+    note: string;
+    symbol?: string;
+    side?: string;
+    qty?: number;
+    pnl?: number;
+    tags?: string[];
+    rating?: number | null;
+    lesson?: string;
+  },
+  token: string
+): Promise<JournalEntry> {
+  return request("/api/journal/entry", json("POST", payload, token));
 }
 
-export function listJournal(userId: string): Promise<JournalEntry[]> {
-  return request(`/api/journal?user_id=${userId}`);
+export function listJournal(token: string): Promise<JournalEntry[]> {
+  return request(`/api/journal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
-export function journalReview(userId: string, token: string): Promise<{ text: string; entries: number }> {
-  return request("/api/journal/review", json("POST", { user_id: userId }, token));
+export function journalReview(token: string): Promise<{ text: string; entries: number }> {
+  return request("/api/journal/review", json("POST", {}, token));
 }
 
-export function deleteJournal(entryId: string, userId: string): Promise<{ deleted: boolean }> {
-  return request(`/api/journal/${entryId}?user_id=${userId}`, { method: "DELETE" });
+export function deleteJournal(entryId: string, token: string): Promise<{ deleted: boolean }> {
+  return request(`/api/journal/${entryId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
 export function csvExportUrl(market: Market, symbol: string, interval: string = "1d"): string {
@@ -411,4 +548,25 @@ export function checkAlerts(
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+export interface BuilderCondition {
+  indicator: string;
+  period?: number | null;
+  op: "above" | "below";
+  ref?: string | null;
+  ref_period?: number | null;
+  value?: number | null;
+}
+
+export interface BuilderRule {
+  op: "AND" | "OR";
+  conditions: BuilderCondition[];
+}
+
+export function builderGenerate(
+  token: string,
+  body: { name: string; entry: BuilderRule; exit: BuilderRule }
+): Promise<{ name: string; code: string; valid: boolean; errors: string[]; warnings: string[] }> {
+  return request("/api/builder/generate", json("POST", body, token));
 }

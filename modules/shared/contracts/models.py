@@ -9,7 +9,7 @@ import pandas as pd
 Market = Literal["IN", "US", "CRYPTO"]
 Interval = Literal["1d", "1h", "1m"]
 Side = Literal["BUY", "SELL"]
-OrderType = Literal["MARKET", "LIMIT", "SL", "SL-M"]
+OrderType = Literal["MARKET", "LIMIT", "SL", "SL-M", "STOP", "STOP_LIMIT", "BRACKET"]
 OrderStatus = Literal["OPEN", "FILLED", "CANCELLED", "REJECTED"]
 Plan = Literal["free", "pro"]
 
@@ -64,6 +64,7 @@ class StrategyConfig:
     max_positions: int = 1
     stop_loss_pct: float | None = None
     take_profit_pct: float | None = None
+    allow_short: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,7 @@ class Metrics:
     profit_factor: float = 0.0
     total_trades: int = 0
     avg_trade_return_pct: float = 0.0
+    avg_trade_duration_days: float = 0.0
     calmar: float = 0.0
 
 
@@ -109,6 +111,7 @@ class Trade:
     pnl: float
     timestamp: datetime
     strategy_id: str | None = None
+    entry_timestamp: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +137,7 @@ class Order:
     order_type: OrderType
     qty: int
     price: float | None = None
+    stop_price: float | None = None
     sl: float | None = None
     tp: float | None = None
     status: OrderStatus = "OPEN"
@@ -149,6 +153,8 @@ class Position:
     avg_price: float
     ltp: float = 0.0
     unrealized_pnl: float = 0.0
+    sl: float | None = None
+    tp: float | None = None
 
 
 @dataclass(frozen=True)

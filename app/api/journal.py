@@ -13,7 +13,6 @@ router = APIRouter(prefix="/api/journal")
 
 
 class EntryRequest(BaseModel):
-    user_id: str = "demo"
     trade_id: str
     note: str
     symbol: str = ""
@@ -26,10 +25,12 @@ class EntryRequest(BaseModel):
 
 
 @router.post("/entry")
-def add_entry(req: EntryRequest) -> dict:
+def add_entry(
+    req: EntryRequest, user: User = Depends(deps.current_user)
+) -> dict:
     try:
         entry = deps.journal_service().add_entry(
-            user_id=req.user_id,
+            user_id=user.id,
             trade_id=req.trade_id,
             note=req.note,
             symbol=req.symbol,
@@ -46,28 +47,26 @@ def add_entry(req: EntryRequest) -> dict:
 
 
 @router.get("")
-def list_entries(user_id: str = "demo") -> list[dict]:
-    return [asdict(e) for e in deps.journal_service().list_entries(user_id)]
+def list_entries(user: User = Depends(deps.current_user)) -> list[dict]:
+    return [asdict(e) for e in deps.journal_service().list_entries(user.id)]
 
 
 @router.delete("/{entry_id}")
-def delete_entry(entry_id: str, user_id: str = "demo") -> dict:
-    deleted = deps.journal_service().delete_entry(user_id, entry_id)
+def delete_entry(
+    entry_id: str, user: User = Depends(deps.current_user)
+) -> dict:
+    deleted = deps.journal_service().delete_entry(user.id, entry_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="entry not found")
     return {"deleted": True}
 
 
-class ReviewRequest(BaseModel):
-    user_id: str = "demo"
-
-
 @router.post("/review")
 def review_journal(
-    req: ReviewRequest, user: User = Depends(deps.require_plan("pro"))
+    user: User = Depends(deps.require_plan("pro"))
 ) -> dict:
-    entries = deps.journal_service().list_entries(req.user_id)
+    entries = deps.journal_service().list_entries(user.id)
     text = deps.assistant_service().review_journal(
-        req.user_id, [asdict(e) for e in entries]
+        user.id, [asdict(e) for e in entries]
     )
     return {"text": text, "entries": len(entries)}

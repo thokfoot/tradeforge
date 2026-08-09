@@ -4,13 +4,20 @@ from pathlib import Path
 
 import pandas as pd
 
+from modules.shared.safety import safe_id
+
 
 class ParquetStore:
     def __init__(self, root: Path):
         self.root = Path(root)
 
     def _path(self, market: str, interval: str, symbol: str) -> Path:
-        return self.root / market / interval / f"{symbol}.parquet"
+        return (
+            self.root
+            / safe_id(market, "market")
+            / safe_id(interval, "interval")
+            / f"{safe_id(symbol, 'symbol')}.parquet"
+        )
 
     def write(self, market: str, interval: str, symbol: str, df: pd.DataFrame) -> None:
         if df.empty:

@@ -27,6 +27,15 @@ def test_chat_returns_text():
     assert reply.needs_confirmation is False
 
 
+def test_chat_prompt_knows_existing_product_features():
+    generator = _FakeGenerator("Current product context received")
+    AIAssistantService(generator).chat("u1", "How can I improve the platform?")
+    prompt = generator.prompts[0]
+    assert "No-code Strategy Builder" in prompt
+    assert "Do not present an existing capability" in prompt
+    assert "NIFTY 50" in prompt
+
+
 def test_chat_extracts_and_validates_code():
     gen = _FakeGenerator(
         "Yahan code hai:\n```python\nsignals = (data['close'] > data['close'].rolling(5).mean()).astype(int)\n```"

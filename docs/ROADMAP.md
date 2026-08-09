@@ -15,14 +15,13 @@ Status legend: `[ ]` pending · `[x]` done · `[~]` in progress
 - [x] Legal notes (LEGAL.md)
 - [x] Repo + docs + module skeleton committed
 
-## Phase 0.5 — Data proof-of-concept (NEXT)
+## Phase 0.5 — Data proof-of-concept (DONE)
 
-- [ ] Confirm Python 3.9+ / pip available
-- [ ] India: fetch 5–10 days EOD for a Nifty stock + Nifty 50 index via `nse-archives` (fallback `nsepython`)
-- [ ] US: fetch EOD via Stooq (fallback yfinance)
-- [ ] Crypto: fetch daily + 1m candles via Binance public API (no key)
-- [ ] Record: which sources worked, rate limits, quirks → update DATA-LAYER.md
-- [ ] Decide final Phase-1 data provider per market
+- [x] India: fetch 5–10 days EOD via nse-archives
+- [x] US: fetch EOD via yfinance
+- [x] Crypto: fetch daily + 1m via Binance
+- [x] Record working sources → DATA-LAYER.md
+- [x] Lock Phase-1 providers: NSE=bhavcopy, US=yfinance, Crypto=Binance
 
 ## Phase 1 — Base (8–10 wk) — India + US + Crypto daily
 
@@ -51,39 +50,39 @@ Status legend: `[ ]` pending · `[x]` done · `[~]` in progress
 - [ ] Parity scoring: backtest vs paper vs live expectations
 
 ### Charts + screener
-- [ ] TradingView lightweight-charts integration
-- [ ] 50+ indicators, multiple timeframes
-- [ ] Basic technical + fundamental screener
-- [ ] Watchlists
+- [x] TradingView lightweight-charts integration
+- [x] 50+ indicators, multiple timeframes
+- [x] Basic technical + fundamental screener
+- [x] Watchlists (DONE module + API + tab)
 
 ### AI assistant (MVP)
-- [ ] Gemini Flash free-tier integration (AI provider adapter — Gemini ↔ Ollama later)
-- [ ] Teacher mode: explain RSI, volume, candlesticks etc. (any language, simple words)
-- [ ] Listener mode: convert natural language (type or voice) → structured strategy, confirm back in plain words
-- [ ] Action mode: create strategy → run backtest → show results (paper-only, every step confirmed)
+- [x] Gemini Flash free-tier integration (AI provider adapter — Gemini ↔ Ollama later)
+- [x] Teacher mode: explain RSI, volume, candlesticks etc. (any language, simple words)
+- [x] Listener mode: convert natural language (type or voice) → structured strategy, confirm back in plain words
+- [x] Action mode: create strategy → run backtest → show results (paper-only, every step confirmed)
 - [ ] Conversation memory per user
 
 ### Users, export, billing
-- [ ] Auth (email+password), user profiles
-- [ ] "Export my data to my git" feature (owner's data-ownership vision)
+- [x] Auth (email+password), user profiles
+- [x] "Export my data to my git" feature (owner's data-ownership vision)
 - [ ] Daily automatic backups
 - [ ] Subscriptions (Razorpay) — basic plans
 
 ### Frontend
-- [ ] Next.js app + PWA (installable mobile + Windows)
-- [ ] Onboarding wizard for beginners (guided)
-- [ ] Hinglish/Hindi language toggle (Phase 2 full)
-- [ ] Admin/ops dashboard
+- [x] Next.js app + PWA (installable mobile + Windows)
+- [x] Onboarding wizard for beginners (guided)
+- [x] Hinglish/Hindi language toggle (full app)
+- [x] Admin/ops dashboard (basic)
 
-## Phase 2 — Speed (6–8 wk)
+## Phase 2 — Speed (6–8 wk) — DONE
 
-- [ ] Crypto intraday backtesting (Binance free)
-- [ ] US intraday (free/cheap source)
-- [ ] Trading journal module
-- [ ] Alerts (price/indicator, push/in-app)
-- [ ] No-code strategy builder (visual)
-- [ ] Education content + learning paths
-- [ ] Full Hindi UI
+- [x] Crypto intraday backtesting (Binance free)
+- [x] US intraday (free/cheap source)
+- [x] Trading journal module
+- [x] Alerts (price/indicator, push/in-app)
+- [x] No-code strategy builder (visual)
+- [x] Education content + learning paths
+- [x] Full Hindi UI
 
 ## Phase 3 — Full power (8–12 wk)
 
@@ -91,7 +90,7 @@ Status legend: `[ ]` pending · `[x]` done · `[~]` in progress
 - [ ] Options/F&O backtesting (paid data source)
 - [ ] Walk-forward + Monte Carlo
 - [ ] Expert API access
-- [ ] Native mobile + Windows apps (Tauri)
+- [x] Native mobile + Windows apps (Tauri .exe built 21.8 MB)
 - [ ] Community/marketplace (legal review first)
 
 ## Ideas backlog (future)

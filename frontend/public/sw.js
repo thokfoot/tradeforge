@@ -1,4 +1,4 @@
-const CACHE = "trade-forge-v1";
+const CACHE = "trade-forge-v3";
 const PRECACHE = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

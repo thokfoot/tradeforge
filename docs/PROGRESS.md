@@ -11,6 +11,70 @@ Format:
 
 ---
 
+## 2026-08-08 — Local release candidate sign-off
+- **Local production stack verified:** backend runs without `--reload` on `:8000`; frontend uses the standalone server on `:3000` with `npm start` corrected to `node .next/standalone/server.js`; both health checks return 200 and the frontend has no Next dev indicator.
+- **Market data:** local-first development mode now avoids remote gap hangs when Parquet data exists; weekend/holiday 404s are cached as missing trading days. India backfill script fixed (keyword dates), supports `--days`/`--all-stocks`, and batch-saves progress.
+- **India local dataset:** 3,462 NSE stock/index Parquet files after a 30-day all-stock backfill; representative Nifty 50/Bank Nifty constituents and major indices have a 90-day window. NIFTY 50, NIFTY BANK, and NIFTY TOTAL MARKET smoke-tested. US: 46 files. Crypto: 2 files.
+- **Smoke verified:** IN/US/CRYPTO symbols and OHLCV, RELIANCE and NIFTY index backtests, India screener, India paper BUY/SELL + reset, demo Pro login, frontend production response.
+- **Tests:** 180 passing after the provider, AI-context, and backfill changes.
+- **UI polish:** desktop/mobile shell, readable line-icon navigation, hover/focus animations, command palette, beginner Learn/Builder entry points, responsive chart, bottom-right floating AI assistant, market/index filters, strategy templates, sticky controls, and distinct execution CTA.
+- **AI quality:** assistant prompt now knows the actual product capabilities and avoids recommending existing modules as new ideas; delayed responses show `Thinking...`.
+- **Next:** local acceptance is complete; remaining work is optional deeper India history and later VPS/domain/HTTPS deployment.
+
+## 2026-08-08 — Phase 3 wrap: Watchlists + Hindi i18n + Onboarding + Admin
+- **Watchlists** (`modules/watchlists/`): `WatchlistStore` (per-user JSON, add/remove/list per market). `POST/GET/DELETE /api/watchlists/*` (login-gated). Frontend Watchlist tab — add symbol per market, chips clickable → navigate to dashboard. 5 tests.
+- **Full Hindi UI** (`frontend/lib/i18n.tsx`): `I18nProvider` + `useT()` / `useLang()` hooks. Translation map covering all tabs, buttons, labels, errors, disclaimer. EN/HI toggle in header applies to entire app.
+- **Onboarding wizard** (`components/Onboarding.tsx`): 5-step guided flow for new visitors — welcome, charts, backtest, paper trading, final tips. Stores `tf_onboarding_done` in localStorage. EN/HI toggle built-in.
+- **Admin dashboard** (`components/Admin.tsx`): Simple server status via `/health` + capability summary. Shown only for admin email.
+- **180 tests green** (watchlist +5 plus AI product-context coverage), frontend build verified.
+
+**Phase 1–3: all planned items complete.** Only VPS test (needs server with Docker) remains.
+
+## 2026-08-08 — Phase 3: Postgres migration (SQLAlchemy models + PG stores)
+- **SQLAlchemy models** (`modules/shared/models.py`): 15 tables — `users`, `sessions`, `strategies`, `journal_entries`, `alert_rules`, `alert_notifications`, `saved_scans`, `education_progress`, `paper_accounts`, `paper_positions`, `paper_orders`, `paper_trades`. All with proper FKs, indexes, JSONB for tags/filters/params.
+- **PG-backed store variants** (`modules/shared/pg_stores.py`): `PgUserStore`, `PgJournalStore`, `PgAlertStore`, `PgScanStore`, `PgEducationStore`, `PgStrategyStore`, `PgAccountStore` — all matching existing JSON store interfaces exactly.
+- **Infrastructure** (`modules/shared/database.py`): Engine/session factory, `init_db()` auto-creates tables, `use_postgres()` config gate.
+- **Config**: `DB_BACKEND` env var (`json` default, `postgres` for PG). `app/config.py`, `.env.example` updated.
+- **Dependency injection** (`app/api/deps.py`): Every store factory checks `use_postgres()` and creates PG or JSON variant accordingly.
+- **App startup** (`app/main.py`): `init_db()` called in lifespan when `DB_BACKEND=postgres`.
+- **Migration script**: `scripts/migrate_to_pg.py` — one-shot copy all JSON data → Postgres tables. Run after switching to `DB_BACKEND=postgres`.
+- **174 tests green**. Backward compatible: default is `json`, zero disruption to existing installs.
+
+**Next:** VPS test. See NEXT-STEPS.md.
+
+## 2026-08-08 — Phase 3 #1–#5: Tauri .exe, Education tab, Demo account
+- **Tauri .exe built successfully!** Installed Rust 1.97.1 (GNU toolchain via `winget install Rustlang.Rustup` + MSYS2 MinGW `C:\msys64` for `dlltool.exe`). `npm run tauri build` → `frontend/src-tauri/target/release/trade-forge.exe` (21.8 MB). Icon generated from existing PWA icon via Pillow → `icon.ico`.
+- **Education tab** — new Learn tab in frontend: 12 lessons across 6 sections (Getting Started, Backtesting, Technical Indicators, Paper Trading, Strategy Builder, Risk Management). Each lesson has English + Hinglish versions, collapsible accordion. EN/HI language toggle. Content in `frontend/lib/lessons.ts`, component `Education.tsx`. Covers: what is trading, why backtest, reading results, RSI/SMA/MACD/Bollinger, paper trading how-to, replay feature, builder blocks, position sizing, drawdown, Indian brokerage costs.
+- **Demo account seeded** — `scripts/seed_demo.py`: `demo@tradeforge.in` / `tradeforge123` Pro account with 6 sample journal entries (AAPL buy/sell, TSLA reversal, RELIANCE value, BTCUSDT allocation) with realistic tags/ratings/lessons.
+- **Data store check** — 1.8 MB, 56 files. US coverage decent (43 parquet symbols). Smoke test passes. NSE India data not yet backfilled (needs ~1 req/day — slow).
+- **174 tests green**, frontend builds (standalone + export) verified.
+
+**Next:** Postgres migration (JSON→SQLAlchemy), VPS test. See NEXT-STEPS.md.
+
+## 2026-08-08 — Phase 2 #6–#7: Tauri desktop wrapper + VPS deployment
+- **Tauri desktop wrapper** (`frontend/src-tauri/`): Full Tauri v2 config + Rust backend (`Cargo.toml`, `main.rs`, `lib.rs`, `build.rs`, `capabilities/default.json`). Config: `tauri.conf.json` (dev → localhost:3000, prod → `output:export`).
+- **Native Windows notifications**: `lib/tauri-notify.ts` (detects Tauri runtime, requests notification permission, `notifyAlert()` bridges alert notifications to OS). Wired into Alerts component — new notifications fire native OS toasts. `TauriNotifyInit` component asks for permission on load.
+- **Build**: `next.config.ts` conditional export mode (`NEXT_EXPORT=1`), `build:export` + `tauri` scripts in package.json, `cross-env` for cross-platform env vars. `types/tauri.d.ts` silences TS module errors.
+- **VPS deploy**: `scripts/deploy.sh` (--setup installs docker + clones + prompts for .env + `docker compose up`, --ssl DOMAIN runs certbot + swaps nginx SSL config, default = git pull + up). `nginx/nginx-ssl.conf` (HTTPS + Let's Encrypt paths).
+- **Compose updates**: port 443, certbot volume, `NGINX_CONF` env var (swap configs), `ENVIRONMENT` pass-through, `NEXT_PUBLIC_API_URL` build arg for frontend.
+- **Both builds verified** (standalone + export), 174 tests green.
+- **Cannot build Tauri .exe yet**: Rust not installed on this machine. All code/config ready — install Rust → `cargo tauri dev/build`.
+- **Cannot test VPS deploy**: Docker not installed on this machine. Script + config ready — copy repo to VPS → `bash scripts/deploy.sh --setup`.
+
+**Next:** Phase 3 — install Rust + build Tauri .exe, in-app Education, Postgres migration, seed demo account, data backfill, VPS test. See NEXT-STEPS.md.
+
+## 2026-08-07 — Phase 2 #5: No-code strategy builder (visual blocks → runnable code)
+- **New module `modules/strategy_builder/`** (pure code generator, no cross-module imports): `StrategyBuilder.generate(spec)` produces engine-ready Python; `validate(spec)` checks structure (allowed indicators/ops/join, numeric values, at least one condition).
+- **Blocks**: indicators `close/open/high/low/volume/sma/ema/rsi` × `above`/`below` × numeric threshold OR vs another indicator (e.g. `close above sma20`); entry & exit rules each join with AND/OR; empty exit defaults to `exit = ~entry`.
+- **State machine**: flat → buy when entry true (fill next open), holding → sell when exit true (fill next open) — matches engine 0/1 semantics. Generated code uses only top-level names: the restricted sandbox forbids `import` and splits globals/locals (which breaks helper-function patterns), so RSI is precomputed as `rsi_{period}` and the loop is top-level. Runs in BOTH the engine namespace and `StrategyService.validate()` sandbox.
+- **API** (`app/api/builder.py`): `POST /api/builder/generate` (Pro-gated `require_plan`) → `{name, code, valid, errors, warnings}` after a real sandbox validation pass via `deps.strategy_service().validate(probe)`.
+- **Frontend**: new "Strategy Builder" tab — entry/exit block rows (indicator / period / op / threshold-or-ref), AND/OR join selectors, add/remove rows, Generate, code preview, and an inline backtest runner (market/symbol/interval + metrics).
+- **Test suite: 174 passing** (was 161; +9 builder module, +4 builder API). Live verified: RSI-pullback spec (RSI<40 buy, RSI>60 sell) → `valid=True` → real AAPL 1d 2024→2026 backtest ran (10 trades, +4.46%).
+- Also: blanked the real `GEMINI_API_KEY` that was committed in `.env.example` (commit `cff5bf2`) — owner should rotate it.
+- Commit: `f42f439` (no-code builder + docs).
+
+**Next:** Phase 2 — Tauri desktop wrapper, real VPS deploy. See NEXT-STEPS.md.
+
 ## 2026-08-07 — Phase 2 #4: Alerts (price + RSI, in-app notifications)
 - **New module `modules/alerts/`** (isolated, no cross-module imports): `AlertRule` + `AlertNotification` added to shared contracts (models + `AlertService` Protocol, additive); `AlertStore` (per-user JSON: rules + notifications, capped 200); `AlertService` (create/list/delete/notifications/clear + `check_user`/`check_all`). RSI(14) is a local copy of the Wilder formula — never touches screener internals.
 - **Rule model**: PRICE or RSI metric × ABOVE/BELOW condition × target value. One-shot: on hit the rule flips `active=False` and appends an in-app notification (no spam). Provider errors on one rule are skipped, never crash the check.
@@ -116,3 +180,27 @@ Format:
 - Git initialized + initial commit (see git log).
 
 **Next:** Phase 0.5 — data-source proof-of-concept (India/US/Crypto fetch test). See NEXT-STEPS.md.
+
+## 2026-08-08 - Security sandbox pass (path traversal + misc)
+- **Path traversal closed:** new `modules/shared/safety.py` `safe_id()` (charset + `.`/`..` rejection) applied to every file-backed store: trading_journal, alerts, watchlists, screener/scans, education, strategy_engine, paper_trading, and market_data `ParquetStore` (market/interval/symbol). Attacker-controlled ids can no longer escape the data dir.
+- **Traversal tests:** `modules/trading_journal/tests/test_store_safety.py` (21 cases) covering all per-user stores + parquet store.
+- **Watchlists API 422 bug:** endpoints returned `(dict, 422)` (a malformed 200 body); replaced with `HTTPException(status_code=422)`.
+- **Sandbox bug:** `_ast_check` blocked *definitions* of `exit`/`quit`, breaking the StrategyBuilder-generated code that reads an `exit` variable. Name blocking now applies only to Load context; `exit`/`quit` removed (harmless in the restricted worker builtins).
+- **No command injection:** only subprocess use is the sandbox worker (fixed argv list, no shell). No secrets in code; `.env` gitignored.
+- **Frontend API URL:** `http://localhost:8000` hardcode removed from Admin/Watchlist; centralized `API_URL` export in `lib/api.ts` with same-origin fallback.
+- **Tests:** 210 passing (modules + app), frontend typecheck clean.
+
+## 2026-08-08 - Authz completion: journal/paper/assistant login-gated (multi-user isolation)
+- **Closed the last per-user authz hole:** journal (entry/list/delete/review), paper (order/account/positions/history/reset/replay) and assistant (chat/confirm) accepted a client-supplied `user_id` (query or body, default `demo`) with no auth. Anyone could read/write any user's journal, paper account, or confirm another user's pending AI action.
+- **Fix:** every endpoint now derives `user_id` from the bearer token via `Depends(current_user)` (or `require_plan` for Pro) and uses `user.id`. Client-supplied `user_id` removed from all request models/query params.
+- **Frontend:** `lib/api.ts` dropped `user_id` from all payloads; journal/paper/assistant helpers now take `token`; `Paper` got `token`/`user` props; login-required prompts + disabled buttons when logged out.
+- **Tests:** updated affected API tests to use tokens; added `test_journal_isolated_per_user`, `test_journal_unauth_401`, `test_paper_endpoints_unauth_401` (+ assistant confirm 401). 213 green.
+- **Live verified:** register -> paper order FILLED -> journal add/list -> replay 12 round trips; unauthenticated journal/paper -> 401; a second user sees 0 journal entries.
+- **Also:** frontend production build re-verified (build had been blocked by a running standalone server), backend restarted without `--reload`, smoke-test users cleaned from the local data store.
+
+## 2026-08-08 — Paper P0-B/P0-E: chart-native bracket orders + reset-to-any-amount
+- **Backend** (`modules/paper_trading/service.py`): new `PaperTraderService.set_levels(user_id, symbol, sl, tp)` — updates SL/TP on an open position (keeps qty/avg/ltp/unrealized, persists). `app/api/paper.py`: new `POST /api/paper/position/levels` (404 when no open position, login-gated); `POST /api/paper/reset` now accepts `?amount=` for reset-to-any-amount (defaults to `DEFAULT_CAPITAL`). `deps.py` re-exports `DEFAULT_CAPITAL`.
+- **Frontend** (`components/PaperChart.tsx` new): position chart with candles + draggable SL/TP order lines (via `series.createPriceLine` + pointer-drag mapped through `priceToCoordinate`/`coordinateToPrice`; commit on pointer-up) + right-click context menu (Close Position / Reverse Position). Entry line shown at avg price. Live SL/TP sync from server on each refresh.
+- **Paper tab** (`components/Paper.tsx`): embedded `PaperChart`, 5s live refresh of account/positions, drag → `setLevels` → P&L updates live; Reset button now prompts for the target balance; `tf:paper-reset` listener fixed to use a ref (no stale closure). `lib/api.ts`: `setLevels` + optional `amount` on `resetAccount`.
+- **Chart.tsx:** fixed custom trade-zone renderer TypeScript errors (`CanvasRenderingTarget2D` type import, `scope.context`, whitespace type predicate, `defaultOptions`) — shading still draws via custom series.
+- **Tests:** 5 new service tests (set_levels update/clear/none/persist/trigger-exits) + 3 new API tests (reset amount, position levels, 404 + 401). Full suite **236 green**; frontend `tsc` clean + production build green.

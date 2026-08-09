@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.shared.contracts import Account, Order, Position, Trade
+from modules.shared.safety import safe_id
 
 
 @dataclass
@@ -46,7 +47,7 @@ class AccountStore:
             "orders": [_order_to_dict(o) for o in ledger.orders],
             "trades": [asdict(t) for t in ledger.trades],
         }
-        file = self._path / f"{user_id}.json"
+        file = self._path / f"{safe_id(user_id)}.json"
         file.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
     def _load(self) -> None:
@@ -64,6 +65,8 @@ class AccountStore:
                         avg_price=p["avg_price"],
                         ltp=p.get("ltp", 0.0),
                         unrealized_pnl=p.get("unrealized_pnl", 0.0),
+                        sl=p.get("sl"),
+                        tp=p.get("tp"),
                     )
                     for p in payload.get("positions", [])
                 },

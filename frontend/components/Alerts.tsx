@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   checkAlerts,
   clearAlertNotifications,
@@ -9,11 +9,13 @@ import {
   listAlertNotifications,
   listAlerts,
   MARKETS,
+  MARKET_LABELS,
   type AlertNotification,
   type AlertRule,
   type Market,
   type User,
 } from "@/lib/api";
+import { notifyAlert } from "@/lib/tauri-notify";
 
 export default function Alerts({ token, user }: { token: string | null; user: User | null }) {
   const [rules, setRules] = useState<AlertRule[]>([]);
@@ -25,13 +27,21 @@ export default function Alerts({ token, user }: { token: string | null; user: Us
   const [value, setValue] = useState(100);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+  const prevIdsRef = useRef<Set<string>>(new Set());
 
   async function refresh() {
     if (!token) return;
     setError("");
     try {
       setRules(await listAlerts(token));
-      setNotifications(await listAlertNotifications(token));
+      const newNotifs = await listAlertNotifications(token);
+      setNotifications(newNotifs);
+      for (const n of newNotifs) {
+        if (!prevIdsRef.current.has(n.id)) {
+          notifyAlert(n);
+        }
+      }
+      prevIdsRef.current = new Set(newNotifs.map((n) => n.id));
     } catch (err) {
       setError(String((err as Error).message ?? err));
     }
@@ -113,7 +123,7 @@ export default function Alerts({ token, user }: { token: string | null; user: Us
           Market
           <select value={market} onChange={(e) => setMarket(e.target.value as Market)}>
             {MARKETS.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>{MARKET_LABELS[m]}</option>
             ))}
           </select>
         </label>

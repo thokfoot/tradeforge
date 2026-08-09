@@ -45,7 +45,8 @@ def test_get_symbols_returns_popular_list():
     infos = YFinanceProvider().get_symbols()
     assert len(infos) >= 40
     symbols = {i.symbol for i in infos}
-    assert "AAPL" in symbols and "SPY" in symbols
+    assert "AAPL" in symbols and "SPY" in symbols and "^GSPC" in symbols
     kinds = {i.symbol: i.instrument_type for i in infos}
     assert kinds["SPY"] == "etf"
+    assert kinds["^GSPC"] == "index"
     assert all(i.market == "US" for i in infos)

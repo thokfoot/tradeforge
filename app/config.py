@@ -13,8 +13,12 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-flash-latest"
+    groq_api_key: str = ""
+    cloudflare_ai_url: str = ""
+    cloudflare_ai_token: str = ""
     alerts_enabled: bool = False
     alert_check_interval_seconds: int = 60
+    db_backend: str = "json"
 
 
 settings = Settings()

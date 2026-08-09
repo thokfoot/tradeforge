@@ -13,6 +13,17 @@ build/
 # Data (market data files — large, keep out of git)
 data/
 
+# Generated nginx SSL config (runtime)
+nginx/nginx-ssl-runtime.conf
+
+# Tauri (frontend desktop wrapper)
+frontend/src-tauri/target/
+
+# Backups (snapshot tars — keep out of git)
+backups/
+frontend/out/
+frontend/.tauri/
+
 # Env & secrets
 .env
 .env.local

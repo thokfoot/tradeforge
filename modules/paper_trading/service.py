@@ -61,6 +61,7 @@ class PaperTraderService:
         qty: int,
         order_type: str = "MARKET",
         price: float | None = None,
+        stop_price: float | None = None,
         sl: float | None = None,
         tp: float | None = None,
         strategy_id: str | None = None,
@@ -79,28 +80,161 @@ class PaperTraderService:
                 order_type=order_type,
                 qty=qty,
                 price=price,
+                stop_price=stop_price,
                 sl=sl,
                 tp=tp,
                 status="OPEN",
                 created_at=datetime.utcnow(),
             )
             order = self._try_fill(ledger, order)
+            if order.status == "FILLED" and order.order_type == "BRACKET":
+                self._attach_protective(ledger, order)
             ledger.orders.append(order)
             self._store.save(user_id)
             return order
 
     def _try_fill(self, ledger: Ledger, order: Order) -> Order:
-        if order.order_type == "MARKET":
-            fill = self._price(order.symbol)
-            return self._execute(ledger, order, fill)
-        if order.order_type == "LIMIT" and order.price is not None:
+        ot = order.order_type
+        if ot == "MARKET":
+            return self._execute(ledger, order, self._price(order.symbol))
+        if ot == "LIMIT" and order.price is not None:
             quote = self._price(order.symbol)
             marketable = (order.side == "BUY" and order.price >= quote) or (
                 order.side == "SELL" and order.price <= quote
             )
             if marketable:
                 return self._execute(ledger, order, order.price)
+            return order
+        if ot in ("SL", "STOP", "SL-M"):
+            trigger = order.price if order.price is not None else order.stop_price
+            if trigger is None:
+                return order
+            quote = self._price(order.symbol)
+            triggered = (order.side == "BUY" and quote >= trigger) or (
+                order.side == "SELL" and quote <= trigger
+            )
+            if triggered:
+                return self._execute(ledger, order, quote)
+            return order
+        if ot == "STOP_LIMIT":
+            trigger = order.stop_price if order.stop_price is not None else order.price
+            limit = order.price
+            if trigger is None or limit is None:
+                return order
+            quote = self._price(order.symbol)
+            triggered = (order.side == "BUY" and quote >= trigger) or (
+                order.side == "SELL" and quote <= trigger
+            )
+            if triggered:
+                marketable = (order.side == "BUY" and limit >= quote) or (
+                    order.side == "SELL" and limit <= quote
+                )
+                return self._execute(ledger, order, quote if marketable else limit)
+            return order
+        if ot == "BRACKET":
+            if order.price is not None:
+                quote = self._price(order.symbol)
+                marketable = (order.side == "BUY" and order.price >= quote) or (
+                    order.side == "SELL" and order.price <= quote
+                )
+                if marketable:
+                    return self._execute(ledger, order, order.price)
+                return order
+            return self._execute(ledger, order, self._price(order.symbol))
         return order
+
+    def _attach_protective(self, ledger: Ledger, order: Order) -> None:
+        pos = ledger.positions.get(order.symbol)
+        if pos is None:
+            return
+        sl = order.sl if order.sl is not None else pos.sl
+        tp = order.tp if order.tp is not None else pos.tp
+        if sl is None and tp is None:
+            return
+        ledger.positions[order.symbol] = Position(
+            symbol=pos.symbol,
+            qty=pos.qty,
+            avg_price=pos.avg_price,
+            ltp=pos.ltp,
+            unrealized_pnl=pos.unrealized_pnl,
+            sl=sl,
+            tp=tp,
+        )
+
+    def set_levels(
+        self,
+        user_id: str,
+        symbol: str,
+        sl: float | None = None,
+        tp: float | None = None,
+    ) -> Position | None:
+        """Update the SL/TP levels on an open position. Returns None if no position."""
+        with self._lock:
+            ledger = self._store.get(user_id)
+            pos = ledger.positions.get(symbol)
+            if pos is None:
+                return None
+            ltp = self._price(symbol) if self._pricer else pos.avg_price
+            updated = Position(
+                symbol=pos.symbol,
+                qty=pos.qty,
+                avg_price=pos.avg_price,
+                ltp=ltp,
+                unrealized_pnl=(ltp - pos.avg_price) * pos.qty,
+                sl=sl,
+                tp=tp,
+            )
+            ledger.positions[symbol] = updated
+            self._store.save(user_id)
+            return updated
+
+    def check_exits(
+        self, user_id: str, quotes: dict[str, float]
+    ) -> list[Order]:
+        """Close open positions whose protective SL/TP level has been hit.
+
+        ``quotes`` maps symbol -> current price. Returns the exit orders that
+        filled. SL/TP are absolute price levels stored on the position.
+        """
+        with self._lock:
+            ledger = self._store.get(user_id)
+            exits: list[Order] = []
+            for symbol, quote in quotes.items():
+                pos = ledger.positions.get(symbol)
+                if pos is None or (pos.sl is None and pos.tp is None):
+                    continue
+                q = float(quote)
+                long = pos.qty > 0
+                hit: float | None = None
+                if long:
+                    if pos.sl is not None and q <= pos.sl:
+                        hit = pos.sl
+                    elif pos.tp is not None and q >= pos.tp:
+                        hit = pos.tp
+                else:
+                    if pos.sl is not None and q >= pos.sl:
+                        hit = pos.sl
+                    elif pos.tp is not None and q <= pos.tp:
+                        hit = pos.tp
+                if hit is None:
+                    continue
+                order = Order(
+                    id=uuid.uuid4().hex[:12],
+                    user_id=user_id,
+                    symbol=symbol,
+                    side="SELL" if long else "BUY",
+                    order_type="MARKET",
+                    qty=abs(pos.qty),
+                    status="OPEN",
+                    created_at=datetime.utcnow(),
+                )
+                order = self._execute(ledger, order, q)
+                if order.status == "FILLED":
+                    ledger.orders.append(order)
+                    exits.append(order)
+            if exits:
+                self._store.save(user_id)
+            return exits
 
     def _execute(self, ledger: Ledger, order: Order, fill: float) -> Order:
         notional = fill * order.qty
@@ -111,13 +245,21 @@ class PaperTraderService:
             pos = ledger.positions.get(order.symbol)
             if pos is None:
                 ledger.positions[order.symbol] = Position(
-                    symbol=order.symbol, qty=order.qty, avg_price=fill
+                    symbol=order.symbol,
+                    qty=order.qty,
+                    avg_price=fill,
+                    sl=order.sl,
+                    tp=order.tp,
                 )
             else:
                 new_qty = pos.qty + order.qty
                 new_avg = (pos.avg_price * pos.qty + fill * order.qty) / new_qty
                 ledger.positions[order.symbol] = Position(
-                    symbol=order.symbol, qty=new_qty, avg_price=new_avg
+                    symbol=order.symbol,
+                    qty=new_qty,
+                    avg_price=new_avg,
+                    sl=order.sl if order.sl is not None else pos.sl,
+                    tp=order.tp if order.tp is not None else pos.tp,
                 )
         else:
             pos = ledger.positions.get(order.symbol)
@@ -194,6 +336,8 @@ class PaperTraderService:
                         avg_price=pos.avg_price,
                         ltp=ltp,
                         unrealized_pnl=unrealized,
+                        sl=pos.sl,
+                        tp=pos.tp,
                     )
                 )
             return out

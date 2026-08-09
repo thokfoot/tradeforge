@@ -10,8 +10,6 @@ import {
   type User,
 } from "@/lib/api";
 
-const USER_ID = "demo";
-
 export default function Journal({ token, user }: { token: string | null; user: User | null }) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [tradeId, setTradeId] = useState("");
@@ -28,19 +26,21 @@ export default function Journal({ token, user }: { token: string | null; user: U
   const [review, setReview] = useState("");
 
   async function refresh() {
-    setEntries(await listJournal(USER_ID));
+    if (!token) return;
+    setEntries(await listJournal(token));
   }
 
   useEffect(() => {
     refresh().catch((e) => setError(String(e.message ?? e)));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!token) return;
     setError("");
     try {
       await addJournalEntry({
-        user_id: USER_ID,
         trade_id: tradeId || `manual-${Date.now()}`,
         note,
         symbol,
@@ -50,7 +50,7 @@ export default function Journal({ token, user }: { token: string | null; user: U
         tags: tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
         rating,
         lesson,
-      });
+      }, token);
       setNote("");
       setLesson("");
       await refresh();
@@ -60,9 +60,10 @@ export default function Journal({ token, user }: { token: string | null; user: U
   }
 
   async function onDelete(entryId: string) {
+    if (!token) return;
     setError("");
     try {
-      await deleteJournal(entryId, USER_ID);
+      await deleteJournal(entryId, token);
       await refresh();
     } catch (err) {
       setError(String((err as Error).message ?? err));
@@ -75,7 +76,7 @@ export default function Journal({ token, user }: { token: string | null; user: U
     setError("");
     setReview("");
     try {
-      const res = await journalReview(USER_ID, token);
+      const res = await journalReview(token);
       setReview(res.text);
     } catch (err) {
       setError(String((err as Error).message ?? err));
@@ -86,6 +87,7 @@ export default function Journal({ token, user }: { token: string | null; user: U
 
   return (
     <>
+      {!token && <p className="muted small">Login required to save and view your journal.</p>}
       <section className="backtest-form">
         <form className="order-form" onSubmit={onSubmit}>
           <div className="row">
@@ -110,7 +112,7 @@ export default function Journal({ token, user }: { token: string | null; user: U
             <label>Lesson<input value={lesson} onChange={(e) => setLesson(e.target.value)} /></label>
             <label>Tags (comma sep)<input value={tags} onChange={(e) => setTags(e.target.value)} /></label>
           </div>
-          <button type="submit">Save journal entry</button>
+          <button type="submit" disabled={!token}>Save journal entry</button>
           {error && <p className="error">{error}</p>}
         </form>
       </section>

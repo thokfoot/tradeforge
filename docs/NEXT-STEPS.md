@@ -4,32 +4,55 @@
 
 ## Current state (short)
 
-**Phase 1 COMPLETE + AI live + Phase 2 #1–#4 (intraday/replay, screener 2.0, journal AI review, alerts) DONE.** 161 tests green, live verified.
-- **M1–M6** scaffold, contracts, 3 data adapters, backtest engine, data+backtest API.
-- **M7** paper trading (`/api/paper/*`), **M8** strategy storage+sandbox, **M10** AI assistant, **M9** Next.js PWA frontend.
-- **Wrap** auth+billing (free/pro, pro gates on strategy save + AI chat), screener (`/api/screener/scan`), journal (`/api/journal/*`), data export (CSV + `scripts/export_to_git.py`), deploy config (compose + nginx + standalone frontend Dockerfile).
-- **AI LIVE** — real Gemini key wired (`settings.gemini_api_key`, model `gemini-flash-latest`); live Hinglish replies verified.
-- **Intraday + replay** — 1m/1h bars w/ timestamps + interval-scaled defaults; `POST /api/paper/replay`; Dashboard interval picker + Replay-to-Paper button; pct-sizing floor-to-1 fix.
-- **Screener 2.0** — RSI/Bollinger %B/vol-ratio/SMA20/MACD indicators + filters + sort; saved scans per user (save/list/delete/run, login-gated).
-- **Journal AI review** — `AIAssistant.review_journal()` + `POST /api/journal/review` (Pro); Journal tab "AI Review my Journal" button; live Gemini feedback verified on real entries.
-- **Alerts** — `modules/alerts/`: PRICE + RSI(14) one-shot rules, in-app notifications, `/api/alerts/*` (login), background loop behind `ALERTS_ENABLED`; Alerts tab. Live verified (AAPL price rule fired on real quote).
+**Phase 1 + 2 + 3 COMPLETE. Local release candidate verified.** 236 tests green.
+- Security hardening: path traversal closed in all file stores; journal/paper/assistant endpoints now login-gated (user_id from token, never from client); watchlists 422 bug + sandbox `exit` blocking fixed.
+- Paper trading upgraded: chart-native bracket orders (draggable SL/TP lines on the position chart, right-click Close/Reverse via `PaperChart.tsx`), reset-to-any-amount (`POST /api/paper/reset?amount=`, `setLevels` endpoint).
+- Tauri .exe built (21.8 MB, Win x64)
+- Education tab (12 lessons EN/HI)
+- Watchlists (add/remove per market, login-gated)
+- Full Hindi i18n (EN/HI toggle everywhere)
+- Onboarding wizard (5-step guided flow)
+- Admin dashboard (health + status)
+- Postgres migration ready (DB_BACKEND=postgres)
+- Demo account ready (demo@tradeforge.in / tradeforge123)
+- Local production stack verified (`uvicorn` without reload + standalone Next server)
+- India local dataset ready for testing: 3,462 NSE stock/index files after a 30-day all-stock backfill; major indices and representative Nifty/Bank constituents have a 90-day window
+- US and Crypto local datasets verified
+- Desktop/mobile UI acceptance pass completed: line navigation, hover states, animations, command palette, floating AI assistant, market/index filters, strategy templates, and sticky controls
+- VPS deploy scripts ready (deploy.sh, nginx SSL)
 
-## Next task: Phase 2 (run in this order)
+## Only remaining
 
-### Phase 2 — Speed (see ROADMAP.md)
-- [x] **Intraday + replay** — 1m/1h bars, minute backtest + paper replay (DONE 2026-08-07)
-- [x] **Screener 2.0** — indicators (RSI/BB/vol-ratio/MACD/SMA20) + saved scans (DONE 2026-08-07); watchlists + fundamentals still later (no free fundamental data)
-- [x] **Journal AI review** — Gemini reads journal entries → patterns + feedback (DONE 2026-08-07; paper-only, Pro-gated)
-- [x] **Alerts** — price + RSI one-shot rules, in-app notifications, `/api/alerts/*`, background loop behind `ALERTS_ENABLED` (DONE 2026-08-07)
-- [ ] **No-code strategy builder** — visual blocks → generated `signals` code (reuse sandbox)
-- [ ] **Education** — in-app lessons, Hinglish/Hindi toggle
-- [ ] **Tauri desktop** wrapper + Windows notifications
+- [ ] **VPS test** — copy repo to real cloud VPS, `bash scripts/deploy.sh --setup`, set `DB_BACKEND=postgres`, `python scripts/migrate_to_pg.py`, then `--ssl yourdomain.com`
+- [x] **Local data backfill** — 30-day all-NSE-stock dataset plus 90-day representative/index dataset completed; `--days`, `--all-stocks`, holiday handling, and batch writes added to `scripts/backfill_india.py`
+- [ ] **Optional deep data backfill** — run a longer India history if the launch needs more than the local 90-day research window
+- [ ] **Tauri sign** — code-sign the .exe for Windows distribution (optional)
 
-### Phase 1 leftovers (do before/while Phase 2)
-- [ ] Real VPS deploy: `docker compose up --build` (Docker not installed on dev machine — config written, verify on server), domain + HTTPS, prod `NEXT_PUBLIC_API_URL`
-- [ ] Data backfill once (NSE ~1 req/day — slow; US/crypto fast), check store size
-- [ ] Seed a demo Pro account for the first customer
-- [ ] Postgres adoption for users/strategies (currently JSON-file stores — fine for MVP, switch when multi-user)
+## Next task: Production launch (only after local sign-off)
+
+- [x] Local production build and smoke checks
+- [x] Beginner, mid-level, and pro feature paths verified locally
+- [ ] Choose VPS and domain
+- [ ] Set production secrets and switch to Postgres
+- [ ] Deploy Docker stack and HTTPS
+- [ ] Run production smoke tests and backups
+
+## Phase 2 historical record
+
+### Phase 2 — Speed (see ROADMAP.md) — ALL DONE
+- [x] **Intraday + replay** — 1m/1h bars, minute backtest + paper replay
+- [x] **Screener 2.0** — indicators (RSI/BB/vol-ratio/MACD/SMA20) + saved scans
+- [x] **Journal AI review** — Gemini reads journal entries → patterns + feedback
+- [x] **Alerts** — price + RSI one-shot rules, in-app notifications, background loop
+- [x] **No-code strategy builder** — visual blocks → generated `signals` code
+- [x] **Tauri desktop** — config + Rust backend + notification plugin written (needs Rust installed to build .exe)
+- [x] **VPS deploy** — `scripts/deploy.sh` + SSL nginx config + compose updates (needs VPS to test)
+
+### Phase 1 leftovers → moved to Phase 3
+- [ ] VPS test (Docker not on dev machine — script + config ready)
+- [x] Local India data backfill for representative symbols and indexes; deeper history remains optional
+- [x] Seed a demo Pro account for the first customer
+- [x] Postgres migration prepared; production adoption waits for the VPS
 
 > Full Phase 2/3 scope — see docs/PLAN.md and docs/ROADMAP.md.
 

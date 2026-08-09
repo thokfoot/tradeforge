@@ -19,9 +19,10 @@ def compute_metrics(equity: pd.Series, trades: list[Trade]) -> Metrics:
     sharpe = _annualized_sharpe(rets)
     sortino = _annualized_sortino(rets)
     max_dd_pct = float((equity / equity.cummax() - 1.0).min() * 100.0)
-    wins = [t for t in trades if t.pnl > 0]
-    losses = [t for t in trades if t.pnl < 0]
-    win_rate_pct = len(wins) / len(trades) * 100.0 if trades else 0.0
+    closed = [t for t in trades if t.entry_timestamp is not None]
+    wins = [t for t in closed if t.pnl > 0]
+    losses = [t for t in closed if t.pnl < 0]
+    win_rate_pct = len(wins) / len(closed) * 100.0 if closed else 0.0
     gross_profit = sum(t.pnl for t in wins)
     gross_loss = abs(sum(t.pnl for t in losses))
     if gross_loss > 0:
@@ -30,8 +31,17 @@ def compute_metrics(equity: pd.Series, trades: list[Trade]) -> Metrics:
         profit_factor = float("inf") if gross_profit > 0 else 0.0
     calmar = cagr_pct / abs(max_dd_pct) if max_dd_pct < 0 else 0.0
     avg_trade_return_pct = (
-        np.mean([t.pnl for t in trades]) / start * 100.0 if trades else 0.0
+        np.mean([t.pnl for t in closed]) / start * 100.0 if closed else 0.0
     )
+    durations = []
+    for t in trades:
+        if t.entry_timestamp is not None:
+            durations.append(
+                (pd.Timestamp(t.timestamp) - pd.Timestamp(t.entry_timestamp))
+                .total_seconds()
+                / 86400.0
+            )
+    avg_trade_duration_days = float(np.mean(durations)) if durations else 0.0
     return Metrics(
         total_return_pct=float(total_return_pct),
         cagr_pct=float(cagr_pct),
@@ -42,6 +52,7 @@ def compute_metrics(equity: pd.Series, trades: list[Trade]) -> Metrics:
         profit_factor=float(profit_factor),
         total_trades=len(trades),
         avg_trade_return_pct=float(avg_trade_return_pct),
+        avg_trade_duration_days=float(avg_trade_duration_days),
         calmar=float(calmar),
     )
 
