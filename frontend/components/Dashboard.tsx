@@ -34,7 +34,7 @@ const INTERVALS_BY_MARKET: Record<Market, string[]> = {
 };
 
 const DEFAULT_SYMBOLS: Record<Market, string> = {
-  IN: "RELIANCE",
+  IN: "RELIANCE.NS",
   US: "AAPL",
   CRYPTO: "BTCUSDT",
 };
@@ -302,7 +302,7 @@ export default function Dashboard({ token, user, onNavigate }: {
       .then((s) => {
         if (cancelled) return;
         setSymbols(s);
-        const first = s.find((item) => item.symbol === DEFAULT_SYMBOLS[market])?.symbol ?? s[0]?.symbol ?? "";
+        const first = s.find((item) => item.symbol === DEFAULT_SYMBOLS[market])?.symbol ?? s[0]?.symbol ?? DEFAULT_SYMBOLS[market];
         setSymbol(first);
         setQuery(first);
       })

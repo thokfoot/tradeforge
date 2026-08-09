@@ -213,10 +213,17 @@ export function getOhlcv(
   start?: string,
   end?: string
 ): Promise<{ symbol: string; market: string; interval: string; bars: Bar[] }> {
+  // Add .NS suffix for NSE stocks if market is IN and symbol doesn't have it
+  let apiSymbol = symbol;
+  if (market === "IN" && !symbol.endsWith(".NS") && !symbol.startsWith("NIFTY")) {
+    apiSymbol = `${symbol}.NS`;
+  }
   const params = new URLSearchParams({ market, interval });
   if (start) params.set("start", start);
   if (end) params.set("end", end);
-  return request(`/api/ohlcv/${encodeURIComponent(symbol)}?${params}`);
+  const url = `/api/ohlcv/${encodeURIComponent(apiSymbol)}?${params}`;
+  console.log("[api] getOhlcv fetching:", url);
+  return request(url);
 }
 
 export interface BacktestPayload {
