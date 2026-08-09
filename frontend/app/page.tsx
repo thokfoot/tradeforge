@@ -15,6 +15,7 @@ import Screener from "@/components/Screener";
 import Watchlist from "@/components/Watchlist";
 import type { User, Market } from "@/lib/api";
 import { I18nProvider, useT, useLang } from "@/lib/i18n";
+import { wakeBackend } from "@/lib/api";
 
 type Tab = "dashboard" | "builder" | "screener" | "paper" | "journal" | "alerts" | "learn" | "watchlist" | "admin";
 
@@ -62,6 +63,20 @@ function App() {
   const [commandQuery, setCommandQuery] = useState("");
   const [, setNavMarket] = useState<Market>("IN");
   const [, setNavSymbol] = useState("");
+  const [waking, setWaking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function wake() {
+      try {
+        await wakeBackend();
+      } finally {
+        if (!cancelled) setWaking(false);
+      }
+    }
+    wake();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("tf_token");
@@ -138,6 +153,12 @@ function App() {
       </div>
 
       <main className="main-content">
+        {waking && (
+          <div className="wake-banner" role="status" aria-live="polite">
+            <span className="wake-spinner" />
+            <span>Waking up trading engine… ~50s (Render free tier cold start)</span>
+          </div>
+        )}
         <div className="topbar">
           <div className="topbar-copy">
             <h1 className="page-title">{nav.find((n) => n.id === tab)?.label ?? ""}</h1>

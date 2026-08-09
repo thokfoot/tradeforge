@@ -7,7 +7,45 @@ export const MARKET_LABELS: Record<Market, string> = {
   CRYPTO: "Crypto / 24x7",
 };
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://tradeforge-api-np0c.onrender.com";
+const API_URL = BACKEND_URL;
+const WAKE_URL = BACKEND_URL.replace(/^http/, "https").replace(/\/api.*$/, "");
+
+export const DEFAULT_BASE_URL = BACKEND_URL;
+export { API_URL };
+
+export function wakeBackend(): Promise<boolean> {
+  return fetch(`${WAKE_URL}/health`, {
+    method: "GET",
+    signal: AbortSignal.timeout(70000),
+  })
+    .then((r) => r.ok)
+    .catch(() => false);
+}
+
+async function fetchWithRetry<T>(url: string, init?: RequestInit, retries = 2): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 70000);
+
+  try {
+    const resp = await fetch(url, { ...init, signal: controller.signal });
+    if (!resp.ok) throw new Error(`${resp.status}`);
+    return (await resp.json()) as T;
+  } catch (e) {
+    if (retries > 0) {
+      await new Promise((r) => setTimeout(r, 1000));
+      return fetchWithRetry<T>(url, init, retries - 1);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const resp = await fetchWithRetry<T>(`${API_URL}${path}`, init);
+  return resp;
+}
 
 export interface SymbolInfo {
   symbol: string;
@@ -156,21 +194,6 @@ export interface JournalEntry {
   rating: number | null;
   lesson: string;
   created_at: string | null;
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`${API_URL}${path}`, init);
-  if (!resp.ok) {
-    let detail = "";
-    try {
-      const body = await resp.json();
-      detail = body.detail ?? JSON.stringify(body);
-    } catch {
-      detail = await resp.text();
-    }
-    throw new Error(`${resp.status}: ${detail}`);
-  }
-  return resp.json() as Promise<T>;
 }
 
 function json(method: string, body: unknown, token?: string): RequestInit {

@@ -56,6 +56,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root() -> dict:
+    return {"status": "TradeForge API Live", "docs": "/docs"}
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
+
 app.include_router(health_router)
 app.include_router(market_router)
 app.include_router(backtest_router)
