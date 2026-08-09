@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: tradeforge-api
+    env: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: CORS_ALLOW_ORIGINS
+        value: "https://tradeforge-lac-eta.vercel.app,https://tradeforge-g4h9etimu-thokfoots-projects.vercel.app"
+      - key: ENVIRONMENT
+        value: "production"
+      - key: ALERTS_ENABLED
+        value: "0"
+      - key: DB_BACKEND
+        value: "json"
