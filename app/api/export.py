@@ -7,6 +7,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.api import deps
+from app.api.market import normalize_in_symbol
 
 router = APIRouter(prefix="/api/export")
 
@@ -17,6 +18,8 @@ def export_csv(
     symbol: str = Query(...),
     interval: str = Query("1d"),
 ) -> StreamingResponse:
+    if market.upper() == "IN":
+        symbol = normalize_in_symbol(symbol)
     df = deps.parquet_store().read(market, interval, symbol)
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"no data for {symbol}")

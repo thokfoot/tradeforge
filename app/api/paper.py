@@ -10,6 +10,7 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, Field
 
 from app.api import deps
+from app.api.market import normalize_in_symbol
 from modules.backtest_engine import EventDrivenEngine
 from modules.paper_trading import replay_trades
 from modules.shared.contracts import (
@@ -53,9 +54,10 @@ def place_order(
     req: OrderRequest, user: User = Depends(deps.current_user)
 ) -> dict:
     service = deps.paper_service(req.market)
+    symbol = normalize_in_symbol(req.symbol) if req.market == "IN" else req.symbol
     order = service.place_order(
         user_id=user.id,
-        symbol=req.symbol,
+        symbol=symbol,
         side=req.side,
         qty=req.qty,
         order_type=req.order_type,
@@ -80,7 +82,10 @@ def set_levels(
     req: LevelsRequest, user: User = Depends(deps.current_user)
 ) -> dict:
     pos = deps.paper_service(req.market).set_levels(
-        user.id, req.symbol, req.sl, req.tp
+        user.id,
+        normalize_in_symbol(req.symbol) if req.market == "IN" else req.symbol,
+        req.sl,
+        req.tp,
     )
     if pos is None:
         raise HTTPException(status_code=404, detail="no open position")
@@ -140,9 +145,10 @@ class ReplayRequest(BaseModel):
 
 def _run_replay(user: User, req: ReplayRequest) -> dict:
     provider = deps.provider_for(req.market)
+    symbol = normalize_in_symbol(req.symbol) if req.market == "IN" else req.symbol
     try:
         df = provider.fetch_ohlcv(
-            req.symbol, req.interval, pd.Timestamp(req.start), pd.Timestamp(req.end)
+            symbol, req.interval, pd.Timestamp(req.start), pd.Timestamp(req.end)
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -150,7 +156,7 @@ def _run_replay(user: User, req: ReplayRequest) -> dict:
         raise HTTPException(status_code=404, detail=f"no data for {req.symbol}")
 
     symbol_info = SymbolInfo(
-        symbol=req.symbol,
+        symbol=symbol,
         market=req.market,
         exchange=EXCHANGE_BY_MARKET[req.market],
         name=req.symbol,

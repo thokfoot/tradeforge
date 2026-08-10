@@ -179,9 +179,13 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
 }
 
 function toTime(date: string): Time {
-  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(date)
-    ? (Math.floor(new Date(date.replace(" ", "T")).getTime() / 1000) as Time)
-    : (date as Time);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(date)) {
+    return Math.floor(new Date(date.replace(" ", "T")).getTime() / 1000) as Time;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(date)) {
+    return Math.floor(new Date(date).getTime() / 1000) as Time;
+  }
+  return date as Time;
 }
 
 function isFlatCurve(curve: { date: string; equity: number }[]): boolean {
@@ -260,13 +264,16 @@ export default function Dashboard({ token, user, onNavigate }: {
   const [ctaMsg, setCtaMsg] = useState("");
   const [ctaBusy, setCtaBusy] = useState(false);
   const [focusedTrade, setFocusedTrade] = useState<string | null>(null);
-  const [showHero, setShowHero] = useState<boolean>(() => {
+  const [showHero, setShowHero] = useState<boolean>(true);
+  useEffect(() => {
     try {
-      return !(localStorage.getItem("tf_hide_hero") === "1" || localStorage.getItem("tf_ran_backtest") === "1");
+      if (localStorage.getItem("tf_hide_hero") === "1" || localStorage.getItem("tf_ran_backtest") === "1") {
+        setShowHero(false);
+      }
     } catch {
-      return true;
+      // ignore storage errors
     }
-  });
+  }, []);
   const [realityOpen, setRealityOpen] = useState(false);
   const [resultTab, setResultTab] = useState<"equity" | "trades" | "logs">("equity");
   const [tradePage, setTradePage] = useState(0);
@@ -314,6 +321,7 @@ export default function Dashboard({ token, user, onNavigate }: {
 
   useEffect(() => {
     if (!symbol) return;
+    console.log("Loading symbol:", symbol);
     let cancelled = false;
     setBars([]);
     setOhlcvError("");

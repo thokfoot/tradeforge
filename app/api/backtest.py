@@ -10,6 +10,7 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, Field
 
 from app.api import deps
+from app.api.market import normalize_in_symbol
 from modules.backtest_engine import EventDrivenEngine
 from modules.shared.contracts import (
     CostModel,
@@ -45,9 +46,10 @@ class BacktestRequest(BaseModel):
 @router.post("/backtest")
 def run_backtest(req: BacktestRequest) -> dict:
     provider = deps.provider_for(req.market)
+    symbol = normalize_in_symbol(req.symbol) if req.market == "IN" else req.symbol
     try:
         df = provider.fetch_ohlcv(
-            req.symbol, req.interval, pd.Timestamp(req.start), pd.Timestamp(req.end)
+            symbol, req.interval, pd.Timestamp(req.start), pd.Timestamp(req.end)
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -55,7 +57,7 @@ def run_backtest(req: BacktestRequest) -> dict:
         raise HTTPException(status_code=404, detail=f"no data for {req.symbol}")
 
     symbol_info = SymbolInfo(
-        symbol=req.symbol,
+        symbol=symbol,
         market=req.market,
         exchange=EXCHANGE_BY_MARKET[req.market],
         name=req.symbol,

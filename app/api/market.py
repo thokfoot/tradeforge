@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
-import random
 
 import pandas as pd
 from fastapi import APIRouter, Query
@@ -10,6 +10,25 @@ from fastapi.exceptions import HTTPException
 from app.api import deps
 
 router = APIRouter(prefix="/api")
+
+# Liquid NSE stocks prioritized at the top of the IN symbol list.
+POPULAR_IN = [
+    "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK",
+    "SBIN", "BHARTIARTL", "ITC", "LT", "KOTAKBANK",
+]
+
+_GSEC_RE = re.compile(r"^\d{2,4}GS\d{4}$")
+_SGB_RE = re.compile(r"^SGB")
+
+
+def is_gsec(symbol: str) -> bool:
+    return bool(_GSEC_RE.match(symbol) or _SGB_RE.match(symbol))
+
+
+def normalize_in_symbol(symbol: str) -> str:
+    if symbol.endswith(".NS"):
+        return symbol[:-3]
+    return symbol
 
 
 def default_range(interval: str) -> timedelta:
@@ -26,38 +45,41 @@ def bar_timestamp(ts, interval: str) -> str:
     return ts.strftime("%Y-%m-%d")
 
 
-def generate_mock_bars(symbol: str, start: date, end: date, base_price: float = 2500.0) -> list[dict]:
-    """Generate mock OHLCV bars for when live data is unavailable."""
-    bars = []
-    current = pd.Timestamp(start)
-    end_ts = pd.Timestamp(end)
-    price = base_price
-    while current <= end_ts:
-        # Skip weekends
-        if current.weekday() < 5:
-            open_p = price * (1 + random.uniform(-0.02, 0.02))
-            high = max(open_p, price) * (1 + random.uniform(0, 0.015))
-            low = min(open_p, price) * (1 - random.uniform(0, 0.015))
-            close = price * (1 + random.uniform(-0.015, 0.015))
-            volume = random.uniform(1_000_000, 50_000_000)
-            bars.append({
-                "date": bar_timestamp(current, "1d"),
-                "open": round(open_p, 2),
-                "high": round(high, 2),
-                "low": round(low, 2),
-                "close": round(close, 2),
-                "volume": float(volume),
-            })
-            price = close
-        current += timedelta(days=1)
-    return bars
-
-
 @router.get("/symbols")
 def list_symbols(
     market: str = Query(..., description="IN | US | CRYPTO"),
 ) -> list[dict]:
-    return [info.__dict__ for info in deps.provider_for(market).get_symbols()]
+    infos = deps.provider_for(market).get_symbols()
+    if market.upper() != "IN":
+        return [info.__dict__ for info in infos]
+
+    gsecs: list[dict] = []
+    stocks: list[dict] = []
+    indices: list[dict] = []
+    for info in infos:
+        if is_gsec(info.symbol):
+            gsecs.append(
+                {
+                    **info.__dict__,
+                    "symbol": info.symbol,
+                    "instrument_type": "GSEC",
+                }
+            )
+        elif info.instrument_type == "index":
+            indices.append(info.__dict__)
+        else:
+            stocks.append(
+                {
+                    **info.__dict__,
+                    "symbol": f"{info.symbol}.NS",
+                }
+            )
+
+    rank = {name: i for i, name in enumerate(POPULAR_IN)}
+    stocks.sort(key=lambda s: (rank.get(normalize_in_symbol(s["symbol"]), 99), s["symbol"]))
+    gsecs.sort(key=lambda s: s["symbol"])
+    indices.sort(key=lambda s: s["symbol"])
+    return stocks + indices + gsecs
 
 
 @router.get("/ohlcv/{symbol}")
@@ -68,40 +90,32 @@ def get_ohlcv(
     start: date | None = Query(None),
     end: date | None = Query(None),
 ) -> dict:
-    import os
-    is_local = os.getenv("ENVIRONMENT", "development") != "production"
-    
+    # NSE stores symbols without the .NS suffix the UI appends
+    if market.upper() == "IN":
+        symbol = normalize_in_symbol(symbol)
     print(f"[market] Fetching candles for {symbol} market={market} interval={interval}")
     if start is None:
         start = date.today() - default_range(interval)
     if end is None:
         end = date.today()
-    
-    # For local testing, return mock data immediately (fast)
-    if is_local:
-        print(f"[market] Local mode: returning mock data for {symbol}")
-        mock_bars = generate_mock_bars(symbol, start, end)
-        return {
-            "symbol": symbol,
-            "market": market,
-            "interval": interval,
-            "bars": mock_bars,
-        }
-    
+
     try:
         df = deps.provider_for(market).fetch_ohlcv(
             symbol, interval, pd.Timestamp(start), pd.Timestamp(end)
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    if df.empty and market.upper() == "IN":
+        df = _yfinance_in_fallback(symbol, interval, start, end)
+
     if df.empty:
-        print(f"[market] No data for {symbol}, returning mock data")
-        mock_bars = generate_mock_bars(symbol, start, end)
+        print(f"[market] No data for {symbol}")
         return {
             "symbol": symbol,
             "market": market,
             "interval": interval,
-            "bars": mock_bars,
+            "bars": [],
         }
     bars = [
         {
@@ -114,9 +128,48 @@ def get_ohlcv(
         }
         for ts, row in df.iterrows()
     ]
+    print(f"[market] Fetched {len(bars)} bars for {symbol}")
     return {
         "symbol": symbol,
         "market": market,
         "interval": interval,
         "bars": bars,
     }
+
+
+def _yfinance_in_fallback(
+    symbol: str, interval: str, start: date, end: date
+) -> pd.DataFrame:
+    """Try yfinance with .NS, then plain, then .BO for NSE symbols."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        return pd.DataFrame()
+    for candidate in (f"{symbol}.NS", symbol, f"{symbol}.BO"):
+        try:
+            df = yf.Ticker(candidate).history(
+                start=start.isoformat(),
+                end=(end + timedelta(days=1)).isoformat(),
+                interval=interval,
+                auto_adjust=True,
+            )
+        except Exception as exc:
+            print(f"[market] yfinance {candidate} error: {exc}")
+            continue
+        if df is None or df.empty:
+            print(f"[market] yfinance {candidate} empty")
+            continue
+        print(f"[market] yfinance {candidate} gave {len(df)} rows")
+        out = pd.DataFrame(
+            {
+                "open": df["Open"],
+                "high": df["High"],
+                "low": df["Low"],
+                "close": df["Close"],
+                "volume": df["Volume"],
+            }
+        )
+        out.index = pd.DatetimeIndex(pd.to_datetime(df.index)).tz_localize(None)
+        out.index.name = "date"
+        return out
+    return pd.DataFrame()
