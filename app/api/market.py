@@ -155,13 +155,23 @@ def _ohlcv_response(
     source: str = "archive",
 ) -> dict:
     bars = []
-    for ts, row in df.iterrows():
-        ts_ist = pd.Timestamp(ts).tz_localize(IST) if pd.Timestamp(ts).tzinfo is None else pd.Timestamp(ts).tz_convert(IST)
+    live_time_str = df.attrs.get("live_time_str") if hasattr(df, "attrs") else None
+    for i, (ts, row) in enumerate(df.iterrows()):
+        if interval == "1d":
+            d = ts.date() if isinstance(ts, pd.Timestamp) else pd.Timestamp(ts).date()
+            close_ist = datetime.combine(d, time(15, 30), tzinfo=IST)
+            time_unix = int(close_ist.timestamp())
+            time_str = live_time_str if (i == len(df) - 1 and live_time_str) else close_ist.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            ts_ist = pd.Timestamp(ts)
+            ts_ist = ts_ist.tz_localize(IST) if ts_ist.tzinfo is None else ts_ist.tz_convert(IST)
+            time_unix = int(ts_ist.timestamp())
+            time_str = ts_ist.strftime("%Y-%m-%d %H:%M:%S")
         bars.append(
             {
                 "date": bar_timestamp(ts, interval),
-                "time": int(ts_ist.timestamp()),
-                "time_str": ts_ist.strftime("%Y-%m-%d %H:%M:%S"),
+                "time": time_unix,
+                "time_str": time_str,
                 "open": round(float(row["open"]), 4),
                 "high": round(float(row["high"]), 4),
                 "low": round(float(row["low"]), 4),
@@ -169,6 +179,8 @@ def _ohlcv_response(
                 "volume": float(row["volume"]),
             }
         )
+    if interval == "1d" and bars:
+        print(f"1D last candle: {bars[-1]['time_str']}")
     print(f"[market] Fetched {len(bars)} bars for {symbol} source={source}")
     return {
         "symbol": symbol,
@@ -191,17 +203,41 @@ def _yahoo_live(
     """
     if interval not in ("1m", "5m", "15m", "30m", "1h", "1d"):
         return None, {}, ""
-    suffix = ".NS" if symbol.endswith(".NS") else ""
     base = symbol[:-3] if symbol.endswith(".NS") else symbol
     for candidate in (f"{base}.NS", base, f"{base}.BO"):
         df, meta = _yahoo_chart(candidate, interval)
-        if df is None:
+        if df is None or df.empty:
             continue
-        if interval == "1d" and df.empty:
-            continue
-        if df is not None and not df.empty:
-            return df, meta, f"yahoo:{candidate}"
+        if interval == "1d":
+            live, live_meta = _yahoo_chart(candidate, "1m")
+            if live is not None and not live.empty:
+                _merge_today_live(df, live)
+        return df, meta, f"yahoo:{candidate}"
     return None, {}, ""
+
+
+def _merge_today_live(daily: pd.DataFrame, live: pd.DataFrame) -> None:
+    """Replace today's daily bar with OHLCV aggregated from live 1m bars and
+    record the last live time so the API can return it instead of midnight."""
+    today = ist_now().date()
+    live_today = live[live.index.date == today]
+    if live_today.empty:
+        return
+    last_live_ts = live_today.index[-1]
+    agg = pd.DataFrame(
+        {
+            "open": [live_today["open"].dropna().iloc[0]],
+            "high": [live_today["high"].max()],
+            "low": [live_today["low"].min()],
+            "close": [live_today["close"].dropna().iloc[-1]],
+            "volume": [live_today["volume"].sum()],
+        },
+        index=[pd.Timestamp(today)],
+    )
+    daily.loc[pd.Timestamp(today)] = agg.iloc[0]
+    daily.sort_index(inplace=True)
+    daily.attrs["live_time_str"] = last_live_ts.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[market] merged live {today}: close={agg.iloc[0]['close']} last_live={daily.attrs['live_time_str']}")
 
 
 def _yahoo_chart(symbol: str, interval: str) -> tuple[pd.DataFrame | None, dict]:

@@ -689,11 +689,15 @@ export default function Dashboard({ token, user, onNavigate }: {
                   {liveInfo.market_open ? "OPEN" : "CLOSED"}
                   {liveInfo.source && liveInfo.source.startsWith("yahoo") ? " - LIVE data" : ""}
                 </span>
-                {bars[bars.length - 1]?.time_str && (
-                  <span>
-                    Last LTP: <b>{bars[bars.length - 1]?.close?.toLocaleString("en-IN")}</b> at {bars[bars.length - 1]?.time_str?.slice(11, 16)} IST
-                  </span>
-                )}
+                {bars[bars.length - 1]?.time_str && (() => {
+                  const lastBar = bars[bars.length - 1];
+                  const bannerTime = lastBar.time_str?.split(" ")[1] ?? "00:00";
+                  return (
+                    <span>
+                      Last LTP: <b>{lastBar.close?.toLocaleString("en-IN")}</b> at {bannerTime.slice(0, 5)} IST
+                    </span>
+                  );
+                })()}
               </div>
             )}
             <div className="chart-toolbar">
