@@ -244,6 +244,7 @@ export default function Dashboard({ token, user, onNavigate }: {
   const [open, setOpen] = useState(false);
   const [interval, setInterval] = useState("1d");
   const [bars, setBars] = useState<Bar[]>([]);
+  const [liveInfo, setLiveInfo] = useState<{ as_of_ist?: string; market_open?: boolean; source?: string }>({});
   const [reloadNonce, setReloadNonce] = useState(0);
   const [loading, setLoading] = useState(false);
   const [ohlcvError, setOhlcvError] = useState("");
@@ -336,6 +337,9 @@ export default function Dashboard({ token, user, onNavigate }: {
       .then((r) => {
         if (cancelled) return;
         setBars(r.bars);
+        setLiveInfo({ as_of_ist: r.as_of_ist, market_open: r.market_open, source: r.source });
+        const last = r.bars[r.bars.length - 1];
+        console.log("Last bar:", last);
       })
       .catch((e) => setOhlcvError(String(e.message ?? e)))
       .finally(() => !cancelled && setLoading(false));
@@ -677,6 +681,21 @@ export default function Dashboard({ token, user, onNavigate }: {
         <div className="dash-main">
 
           <section className="card chart-card">
+            {bars.length > 0 && (
+              <div className={`live-status ${liveInfo.market_open ? "live-open" : "live-closed"}`}>
+                <span className="live-dot" />
+                <span>
+                  Today: {new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date())} - Market{" "}
+                  {liveInfo.market_open ? "OPEN" : "CLOSED"}
+                  {liveInfo.source && liveInfo.source.startsWith("yahoo") ? " - LIVE data" : ""}
+                </span>
+                {bars[bars.length - 1]?.time_str && (
+                  <span>
+                    Last LTP: <b>{bars[bars.length - 1]?.close?.toLocaleString("en-IN")}</b> at {bars[bars.length - 1]?.time_str?.slice(11, 16)} IST
+                  </span>
+                )}
+              </div>
+            )}
             <div className="chart-toolbar">
               <div className="segmented chart-type">
                 <button type="button" className={chartType === "candles" ? "on" : ""} onClick={() => setChartType("candles")}>Candles</button>

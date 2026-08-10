@@ -1,13 +1,28 @@
 from __future__ import annotations
 
+import json
 import re
-from datetime import date, timedelta
+import urllib.request
+from datetime import date, datetime, time, timedelta, timezone
 
 import pandas as pd
 from fastapi import APIRouter, Query
 from fastapi.exceptions import HTTPException
 
 from app.api import deps
+
+IST = timezone(timedelta(hours=5, minutes=30))
+_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"}
+
+
+def ist_now() -> datetime:
+    return datetime.now(IST)
+
+
+def _is_market_open(now: datetime) -> bool:
+    if now.weekday() >= 5:
+        return False
+    return time(9, 15) <= now.time() <= time(15, 30)
 
 router = APIRouter(prefix="/api")
 
@@ -93,7 +108,16 @@ def get_ohlcv(
     # NSE stores symbols without the .NS suffix the UI appends
     if market.upper() == "IN":
         symbol = normalize_in_symbol(symbol)
-    print(f"[market] Fetching candles for {symbol} market={market} interval={interval}")
+    now = ist_now()
+    print(f"[market] Fetching candles for {symbol} market={market} interval={interval} as_of={now.isoformat()}")
+
+    if market.upper() == "IN":
+        df, meta, source = _yahoo_live(symbol, interval, start, end)
+        if df is not None and not df.empty:
+            print(f"[market] LIVE {source}: {len(df)} bars, last={df.index[-1]} ({now})")
+            return _ohlcv_response(symbol, market, interval, df, now, source=source)
+        print(f"[market] live fetch empty, falling back to NSE archive for {symbol}")
+
     if start is None:
         start = date.today() - default_range(interval)
     if end is None:
@@ -115,26 +139,115 @@ def get_ohlcv(
             "symbol": symbol,
             "market": market,
             "interval": interval,
+            "as_of_ist": now.isoformat(),
+            "market_open": _is_market_open(now),
             "bars": [],
         }
-    bars = [
-        {
-            "date": bar_timestamp(ts, interval),
-            "open": round(float(row["open"]), 4),
-            "high": round(float(row["high"]), 4),
-            "low": round(float(row["low"]), 4),
-            "close": round(float(row["close"]), 4),
-            "volume": float(row["volume"]),
-        }
-        for ts, row in df.iterrows()
-    ]
-    print(f"[market] Fetched {len(bars)} bars for {symbol}")
+    return _ohlcv_response(symbol, market, interval, df, now)
+
+
+def _ohlcv_response(
+    symbol: str,
+    market: str,
+    interval: str,
+    df: pd.DataFrame,
+    now: datetime,
+    source: str = "archive",
+) -> dict:
+    bars = []
+    for ts, row in df.iterrows():
+        ts_ist = pd.Timestamp(ts).tz_localize(IST) if pd.Timestamp(ts).tzinfo is None else pd.Timestamp(ts).tz_convert(IST)
+        bars.append(
+            {
+                "date": bar_timestamp(ts, interval),
+                "time": int(ts_ist.timestamp()),
+                "time_str": ts_ist.strftime("%Y-%m-%d %H:%M:%S"),
+                "open": round(float(row["open"]), 4),
+                "high": round(float(row["high"]), 4),
+                "low": round(float(row["low"]), 4),
+                "close": round(float(row["close"]), 4),
+                "volume": float(row["volume"]),
+            }
+        )
+    print(f"[market] Fetched {len(bars)} bars for {symbol} source={source}")
     return {
         "symbol": symbol,
         "market": market,
         "interval": interval,
+        "as_of_ist": now.isoformat(),
+        "market_open": _is_market_open(now),
+        "source": source,
         "bars": bars,
     }
+
+
+def _yahoo_live(
+    symbol: str, interval: str, start: date | None, end: date | None
+) -> tuple[pd.DataFrame | None, dict, str]:
+    """Live NSE candles straight from Yahoo's chart API (bypasses broken yfinance lib).
+
+    Tries .NS, plain, then .BO. For 1m/5m/1h it uses the intraday endpoint; for
+    1d it merges the current live session into the archived daily series.
+    """
+    if interval not in ("1m", "5m", "15m", "30m", "1h", "1d"):
+        return None, {}, ""
+    suffix = ".NS" if symbol.endswith(".NS") else ""
+    base = symbol[:-3] if symbol.endswith(".NS") else symbol
+    for candidate in (f"{base}.NS", base, f"{base}.BO"):
+        df, meta = _yahoo_chart(candidate, interval)
+        if df is None:
+            continue
+        if interval == "1d" and df.empty:
+            continue
+        if df is not None and not df.empty:
+            return df, meta, f"yahoo:{candidate}"
+    return None, {}, ""
+
+
+def _yahoo_chart(symbol: str, interval: str) -> tuple[pd.DataFrame | None, dict]:
+    if interval == "1d":
+        range_ = "6mo"
+    elif interval == "1m":
+        range_ = "5d"
+    else:
+        range_ = "1mo"
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/"
+        f"{urllib.request.quote(symbol)}?interval={interval}&range={range_}"
+    )
+    try:
+        req = urllib.request.Request(url, headers=_UA)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"[market] yahoo {symbol} error: {exc}")
+        return None, {}
+    result = (payload.get("chart") or {}).get("result") or []
+    if not result:
+        return None, {}
+    res = result[0]
+    meta = res.get("meta") or {}
+    ts = res.get("timestamp") or []
+    quote = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+    if not ts:
+        return pd.DataFrame(), meta
+    idx = pd.DatetimeIndex([datetime.fromtimestamp(t, IST) for t in ts], name="date")
+    out = pd.DataFrame(
+        {
+            "open": quote.get("open"),
+            "high": quote.get("high"),
+            "low": quote.get("low"),
+            "close": quote.get("close"),
+            "volume": quote.get("volume"),
+        },
+        index=idx,
+    )
+    out = out.dropna(subset=["close"]).drop_duplicates()
+    if interval == "1d":
+        out.index = pd.DatetimeIndex([ts.date() for ts in out.index], name="date")
+    else:
+        out.index = pd.DatetimeIndex([ts.replace(second=0, microsecond=0) for ts in out.index], name="date")
+    return out, meta
 
 
 def _yfinance_in_fallback(

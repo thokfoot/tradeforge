@@ -70,11 +70,23 @@ export interface SymbolInfo {
 
 export interface Bar {
   date: string;
+  time?: number;
+  time_str?: string;
   open: number;
   high: number;
   low: number;
   close: number;
   volume: number;
+}
+
+export interface OhlcvResponse {
+  symbol: string;
+  market: string;
+  interval: string;
+  as_of_ist?: string;
+  market_open?: boolean;
+  source?: string;
+  bars: Bar[];
 }
 
 export interface BacktestMetrics {
@@ -224,13 +236,13 @@ export function getOhlcv(
   interval: string = "1d",
   start?: string,
   end?: string
-): Promise<{ symbol: string; market: string; interval: string; bars: Bar[] }> {
+): Promise<OhlcvResponse> {
   // Add .NS suffix for NSE stocks if market is IN and symbol doesn't have it
   let apiSymbol = symbol;
   if (market === "IN" && !symbol.endsWith(".NS") && !symbol.startsWith("NIFTY")) {
     apiSymbol = `${symbol}.NS`;
   }
-  const params = new URLSearchParams({ market, interval });
+  const params = new URLSearchParams({ market, interval, nocache: String(Date.now()) });
   if (start) params.set("start", start);
   if (end) params.set("end", end);
   const url = `/api/ohlcv/${encodeURIComponent(apiSymbol)}?${params}`;
