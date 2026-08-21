@@ -105,6 +105,7 @@ def serialize_result(result) -> dict:
         "end": result.end.isoformat(),
         "run_hash": result.run_hash,
         "data_version": result.data_version,
+        "execution_model": result.execution_model,
         "equity_curve": [
             {"date": ts.isoformat(), "equity": round(float(equity), 2)}
             for ts, equity in result.equity_curve.items()

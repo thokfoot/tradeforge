@@ -126,6 +126,7 @@ class BacktestResult:
     metrics: Metrics
     run_hash: str
     data_version: str
+    execution_model: str = "CONSERVATIVE_OHLCV_SL_FIRST"
 
 
 @dataclass(frozen=True)

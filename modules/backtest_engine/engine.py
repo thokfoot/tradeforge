@@ -9,6 +9,7 @@ import pandas as pd
 
 from modules.backtest_engine.metrics import compute_metrics
 from modules.backtest_engine.simulator import simulate
+from modules.market_data.quality import validate_ohlcv
 from modules.shared.contracts import (
     BacktestResult,
     CostModel,
@@ -28,6 +29,9 @@ class EventDrivenEngine:
     ) -> BacktestResult:
         if data.df.empty:
             raise ValueError("data bundle has no bars")
+        quality = validate_ohlcv(data.df, data.interval)
+        if not quality.ok:
+            raise ValueError("invalid market data: " + "; ".join(quality.errors))
         signals = self._signals(strategy, data)
         equity, trades = simulate(data, signals, costs, strategy.config)
         metrics = compute_metrics(equity, trades)
@@ -44,6 +48,7 @@ class EventDrivenEngine:
                 strategy, data.data_version, strategy.params
             ),
             data_version=data.data_version,
+            execution_model="CONSERVATIVE_OHLCV_SL_FIRST",
         )
 
     def metrics(self, result: BacktestResult) -> Metrics:

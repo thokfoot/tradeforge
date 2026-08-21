@@ -106,6 +106,16 @@ def test_ohlcv(client, fake_provider):
     assert set(body["bars"][0]) == {"date", "open", "high", "low", "close", "volume"}
 
 
+def test_ohlcv_as_of_excludes_future_bars(client):
+    resp = client.get(
+        "/api/ohlcv/TEST",
+        params={"market": "IN", "as_of": "2024-01-05T23:59:00+05:30"},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["bars"]) == 5
+    assert resp.json()["bars"][-1]["date"] == "2024-01-05"
+
+
 def test_ohlcv_empty_returns_404(fake_provider, monkeypatch):
     fake_provider._df = pd.DataFrame(
         columns=["open", "high", "low", "close", "volume"]

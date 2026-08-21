@@ -105,6 +105,7 @@ def get_ohlcv(
     interval: str = Query("1d"),
     start: date | None = Query(None),
     end: date | None = Query(None),
+    as_of: datetime | None = Query(None, description="Replay cutoff timestamp"),
 ) -> dict:
     # NSE stores symbols without the .NS suffix the UI appends
     if market.upper() == "IN":
@@ -127,6 +128,11 @@ def get_ohlcv(
         start = date.today() - default_range(interval)
     if end is None:
         end = date.today()
+    if as_of is not None:
+        cutoff = as_of
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=IST)
+        end = min(end, cutoff.date())
 
     try:
         df = provider.fetch_ohlcv(
@@ -141,6 +147,20 @@ def get_ohlcv(
     if df.empty:
         print(f"[market] No data for {symbol}")
         raise HTTPException(status_code=404, detail="no verified market data")
+    if as_of is not None:
+        cutoff = pd.Timestamp(as_of)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.tz_localize(IST)
+        else:
+            cutoff = cutoff.tz_convert(IST)
+        index = pd.DatetimeIndex(df.index)
+        if index.tz is None:
+            cutoff_value = cutoff.tz_localize(None)
+        else:
+            cutoff_value = cutoff.tz_convert(index.tz)
+        df = df[index <= cutoff_value]
+        if df.empty:
+            raise HTTPException(status_code=404, detail="no verified market data at replay cutoff")
     return _ohlcv_response(symbol, market, interval, df, now)
 
 
