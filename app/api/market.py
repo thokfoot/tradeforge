@@ -65,6 +65,7 @@ def list_symbols(
     market: str = Query(..., description="IN | US | CRYPTO"),
 ) -> list[dict]:
     infos = deps.provider_for(market).get_symbols()
+    is_builtin_nse = infos and deps.provider_for(market).__class__.__name__ == "NSEArchiveProvider"
     if market.upper() != "IN":
         return [info.__dict__ for info in infos]
 
@@ -86,7 +87,7 @@ def list_symbols(
             stocks.append(
                 {
                     **info.__dict__,
-                    "symbol": f"{info.symbol}.NS",
+                    "symbol": f"{info.symbol}.NS" if is_builtin_nse else info.symbol,
                 }
             )
 
@@ -111,12 +112,16 @@ def get_ohlcv(
     now = ist_now()
     print(f"[market] Fetching candles for {symbol} market={market} interval={interval} as_of={now.isoformat()}")
 
+    provider = deps.provider_for(market)
     if market.upper() == "IN":
-        df, meta, source = _yahoo_live(symbol, interval, start, end)
-        if df is not None and not df.empty:
-            print(f"[market] LIVE {source}: {len(df)} bars, last={df.index[-1]} ({now})")
-            return _ohlcv_response(symbol, market, interval, df, now, source=source)
-        print(f"[market] live fetch empty, falling back to NSE archive for {symbol}")
+        # Only the built-in NSE provider may use the Yahoo live overlay.
+        # Configured providers and test doubles must remain authoritative.
+        if provider.__class__.__name__ == "NSEArchiveProvider":
+            df, meta, source = _yahoo_live(symbol, interval, start, end)
+            if df is not None and not df.empty:
+                print(f"[market] LIVE {source}: {len(df)} bars, last={df.index[-1]} ({now})")
+                return _ohlcv_response(symbol, market, interval, df, now, source=source)
+            print(f"[market] live fetch empty, falling back to NSE archive for {symbol}")
 
     if start is None:
         start = date.today() - default_range(interval)
@@ -124,25 +129,18 @@ def get_ohlcv(
         end = date.today()
 
     try:
-        df = deps.provider_for(market).fetch_ohlcv(
+        df = provider.fetch_ohlcv(
             symbol, interval, pd.Timestamp(start), pd.Timestamp(end)
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    if df.empty and market.upper() == "IN":
+    if df.empty and market.upper() == "IN" and provider.__class__.__name__ == "NSEArchiveProvider":
         df = _yfinance_in_fallback(symbol, interval, start, end)
 
     if df.empty:
         print(f"[market] No data for {symbol}")
-        return {
-            "symbol": symbol,
-            "market": market,
-            "interval": interval,
-            "as_of_ist": now.isoformat(),
-            "market_open": _is_market_open(now),
-            "bars": [],
-        }
+        raise HTTPException(status_code=404, detail="no verified market data")
     return _ohlcv_response(symbol, market, interval, df, now)
 
 
@@ -170,8 +168,6 @@ def _ohlcv_response(
         bars.append(
             {
                 "date": bar_timestamp(ts, interval),
-                "time": time_unix,
-                "time_str": time_str,
                 "open": round(float(row["open"]), 4),
                 "high": round(float(row["high"]), 4),
                 "low": round(float(row["low"]), 4),
@@ -179,8 +175,12 @@ def _ohlcv_response(
                 "volume": float(row["volume"]),
             }
         )
+        if interval != "1d":
+            bars[-1]["time"] = time_unix
+            bars[-1]["time_str"] = time_str
     if interval == "1d" and bars:
-        print(f"1D last candle: {bars[-1]['time_str']}")
+        last_date = bars[-1]["date"]
+        print(f"1D last candle: {last_date} 15:30:00")
     print(f"[market] Fetched {len(bars)} bars for {symbol} source={source}")
     return {
         "symbol": symbol,
